@@ -238,6 +238,8 @@ publish_mode=github
 2. SSH non-interactive 환경에서 `docker`가 PATH에 있는지
 3. workflow는 `/opt/homebrew/bin:/usr/local/bin`을 PATH에 추가한다.
 
+`keychain cannot be accessed because the current session does not allow user interaction`가 나오면 SSH로 실행된 Docker가 macOS Keychain credential helper를 열지 못한 것이다. staging workflow는 배포 중 `DOCKER_CONFIG`를 앱 디렉터리의 `.docker-ci`로 지정해서 MacBook 사용자 계정의 Docker credential helper를 우회한다.
+
 ### API는 뜨지만 smoke review 실패
 
 확인할 것:

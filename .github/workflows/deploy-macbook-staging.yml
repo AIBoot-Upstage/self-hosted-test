@@ -208,6 +208,10 @@ jobs:
           mv "${STAGING_ENV_FILE}" .env
           chmod 600 .env
 
+          export DOCKER_CONFIG="${MACBOOK_APP_DIR}/.docker-ci"
+          mkdir -p "${DOCKER_CONFIG}"
+          printf '{"auths":{}}\n' > "${DOCKER_CONFIG}/config.json"
+
           docker compose up --build -d
           docker compose ps
           curl -fsS "http://127.0.0.1:${STAGING_PORT}/healthz"
