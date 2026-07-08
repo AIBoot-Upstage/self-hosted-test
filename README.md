@@ -103,10 +103,10 @@ AI_REVIEWER_TOKEN=<server-token>
 
 1. `Dockerfile`로 API image를 빌드합니다.
 2. GitHub Actions CI에서 ruff와 test를 실행합니다.
-3. CD workflow가 Artifact Registry에 image를 push합니다.
+3. 수동 CD workflow가 Artifact Registry에 image를 push합니다.
 4. Cloud Run 서비스로 배포합니다.
 
-배포 workflow는 `.github/workflows/deploy-gcp-cloud-run.yml`에 있습니다.
+배포 workflow는 `.github/workflows/deploy-gcp-cloud-run.yml`에 있습니다. GCP 배포는 staging 검증 이후 수동 실행하도록 구성되어 있습니다.
 
 ## MacBook Staging Deployment
 

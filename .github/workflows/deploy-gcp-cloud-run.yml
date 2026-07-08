@@ -2,8 +2,6 @@ name: Deploy to GCP Cloud Run
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
 
 env:
   GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
@@ -55,4 +53,3 @@ jobs:
           secrets: |
             AI_REVIEWER_TOKEN=AI_REVIEWER_TOKEN:latest
             UPSTAGE_API_KEY=UPSTAGE_API_KEY:latest
-

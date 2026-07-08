@@ -2,6 +2,8 @@
 
 Target runtime: Cloud Run.
 
+현재 GCP 배포 workflow는 `workflow_dispatch` 수동 실행 전용이다. MacBook staging 검증이 끝난 뒤 GitHub Actions에서 `Deploy to GCP Cloud Run`을 직접 실행한다.
+
 Required GCP resources:
 
 1. Artifact Registry Docker repository
@@ -25,4 +27,3 @@ Recommended GitHub repository secrets:
 GCP_WORKLOAD_IDENTITY_PROVIDER=projects/.../providers/...
 GCP_SERVICE_ACCOUNT=github-deployer@<project-id>.iam.gserviceaccount.com
 ```
-
