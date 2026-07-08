@@ -65,11 +65,11 @@ jobs:
 
       - name: Validate required configuration
         env:
-          MACBOOK_SSH_KEY_B64: ${{ secrets.MACBOOK_SSH_KEY_B64 }}
+          MACBOOK_SSH_KEY: ${{ secrets.MACBOOK_SSH_KEY }}
         run: |
           test -n "${MACBOOK_HOST}" || (echo "MACBOOK_HOST secret is required" && exit 1)
           test -n "${MACBOOK_USER}" || (echo "MACBOOK_USER secret is required" && exit 1)
-          test -n "${MACBOOK_SSH_KEY_B64}" || (echo "MACBOOK_SSH_KEY_B64 secret is required" && exit 1)
+          test -n "${MACBOOK_SSH_KEY}" || (echo "MACBOOK_SSH_KEY secret is required" && exit 1)
           test -n "${{ secrets.TS_AUTHKEY }}" || (echo "TS_AUTHKEY secret is required" && exit 1)
           test -n "${{ secrets.AI_REVIEWER_TOKEN }}" || (echo "AI_REVIEWER_TOKEN secret is required" && exit 1)
 
@@ -81,7 +81,7 @@ jobs:
 
       - name: Prepare SSH key
         env:
-          MACBOOK_SSH_KEY_B64: ${{ secrets.MACBOOK_SSH_KEY_B64 }}
+          MACBOOK_SSH_KEY: ${{ secrets.MACBOOK_SSH_KEY }}
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
@@ -91,20 +91,20 @@ jobs:
           import re
           from pathlib import Path
 
-          key_b64 = re.sub(r"\s+", "", os.getenv("MACBOOK_SSH_KEY_B64", ""))
+          key_b64 = re.sub(r"\s+", "", os.getenv("MACBOOK_SSH_KEY", ""))
           if not key_b64:
-              raise SystemExit("MACBOOK_SSH_KEY_B64 is empty")
+              raise SystemExit("MACBOOK_SSH_KEY is empty")
 
           try:
               decoded = base64.b64decode(key_b64, validate=True).decode("utf-8")
           except Exception as exc:
-              raise SystemExit("MACBOOK_SSH_KEY_B64 is not valid base64") from exc
+              raise SystemExit("MACBOOK_SSH_KEY must be a base64-encoded private key") from exc
 
           normalized = decoded.replace("\r\n", "\n").replace("\r", "\n").strip() + "\n"
           first_line = normalized.splitlines()[0] if normalized.splitlines() else ""
           if "PRIVATE KEY" not in first_line:
               raise SystemExit(
-                  "MACBOOK_SSH_KEY_B64 must be the base64 of the PRIVATE key, "
+                  "MACBOOK_SSH_KEY must be the base64 of the PRIVATE key, "
                   "not the .pub file or raw public key"
               )
 
