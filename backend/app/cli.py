@@ -7,7 +7,7 @@ from pathlib import Path
 from backend.app.core.config import Settings
 from backend.app.core.schemas import ReviewRequest
 from backend.app.services.orchestrator import create_orchestrator
-from backend.app.services.rag import LocalPolicyIndex
+from backend.app.services.rag import create_policy_index
 
 
 def main() -> None:
@@ -18,7 +18,7 @@ def main() -> None:
 
     settings = Settings.from_env()
     if args.sync_policies:
-        stats = LocalPolicyIndex(settings.policy_root).sync()
+        stats = create_policy_index(settings).sync()
         print(json.dumps(stats, indent=2, ensure_ascii=False))
 
     payload = json.loads(args.payload.read_text(encoding="utf-8"))
@@ -29,4 +29,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

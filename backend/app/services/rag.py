@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import math
 import re
 from pathlib import Path
 
+from backend.app.core.config import Settings
 from backend.app.core.schemas import PolicyChunk, ReviewRequest
 
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_./-]+")
@@ -63,6 +65,42 @@ def _split_markdown(source_path: Path, content: str, max_chars: int = 1800) -> l
     return chunks
 
 
+def _query_tokens(request: ReviewRequest) -> set[str]:
+    query_parts = [
+        request.pull_request.title,
+        " ".join(changed_file.path for changed_file in request.changed_files),
+        " ".join(changed_file.patch[:800] for changed_file in request.changed_files[:5]),
+    ]
+    return _tokens("\n".join(query_parts))
+
+
+def _score_chunks(chunks: list[PolicyChunk], request: ReviewRequest, top_k: int) -> list[PolicyChunk]:
+    if not chunks:
+        return []
+
+    query_tokens = _query_tokens(request)
+    scored: list[PolicyChunk] = []
+    for chunk in chunks:
+        chunk_tokens = _tokens(f"{chunk.source_path} {chunk.section_title} {chunk.content}")
+        overlap = query_tokens & chunk_tokens
+        if not overlap:
+            continue
+        score = len(overlap) / math.sqrt(max(len(chunk_tokens), 1))
+        scored.append(
+            PolicyChunk(
+                source_path=chunk.source_path,
+                section_title=chunk.section_title,
+                content=chunk.content,
+                policy_type=chunk.policy_type,
+                score=round(score, 4),
+            )
+        )
+
+    if not scored:
+        return chunks[: min(top_k, len(chunks))]
+    return sorted(scored, key=lambda item: item.score, reverse=True)[:top_k]
+
+
 class LocalPolicyIndex:
     """Small local RAG index used for MVP and tests.
 
@@ -106,33 +144,139 @@ class LocalPolicyIndex:
 
     def search(self, request: ReviewRequest, top_k: int = 5) -> list[PolicyChunk]:
         chunks = self.load_chunks()
-        if not chunks:
-            return []
+        return _score_chunks(chunks, request, top_k)
 
-        query_parts = [
-            request.pull_request.title,
-            " ".join(changed_file.path for changed_file in request.changed_files),
-            " ".join(changed_file.patch[:800] for changed_file in request.changed_files[:5]),
-        ]
-        query_tokens = _tokens("\n".join(query_parts))
-        scored: list[PolicyChunk] = []
-        for chunk in chunks:
-            chunk_tokens = _tokens(f"{chunk.source_path} {chunk.section_title} {chunk.content}")
-            overlap = query_tokens & chunk_tokens
-            if not overlap:
-                continue
-            score = len(overlap) / math.sqrt(max(len(chunk_tokens), 1))
-            scored.append(
-                PolicyChunk(
-                    source_path=chunk.source_path,
-                    section_title=chunk.section_title,
-                    content=chunk.content,
-                    policy_type=chunk.policy_type,
-                    score=round(score, 4),
+
+class PostgresPolicyIndex(LocalPolicyIndex):
+    def __init__(self, policy_root: Path, database_url: str) -> None:
+        super().__init__(policy_root)
+        self.database_url = database_url
+        self._schema_ready = False
+
+    def _connect(self):
+        try:
+            import psycopg
+        except ModuleNotFoundError as exc:  # pragma: no cover
+            raise RuntimeError("psycopg is not installed. Run `pip install -e .`.") from exc
+        return psycopg.connect(self.database_url)
+
+    def ensure_schema(self) -> None:
+        if self._schema_ready:
+            return
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS policy_chunks (
+                        id BIGSERIAL PRIMARY KEY,
+                        source_path TEXT NOT NULL,
+                        section_title TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        policy_type TEXT NOT NULL,
+                        content_hash TEXT NOT NULL UNIQUE,
+                        embedding VECTOR(1536),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    )
+                    """
                 )
-            )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_policy_chunks_source_path
+                    ON policy_chunks (source_path)
+                    """
+                )
+        self._schema_ready = True
 
-        if not scored:
-            return chunks[: min(top_k, len(chunks))]
-        return sorted(scored, key=lambda item: item.score, reverse=True)[:top_k]
+    def sync(self) -> dict[str, int]:
+        self.ensure_schema()
+        chunks = self.load_chunks()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM policy_chunks")
+                for chunk in chunks:
+                    content_hash = hashlib.sha256(
+                        "\n".join(
+                            [
+                                chunk.source_path,
+                                chunk.section_title,
+                                chunk.policy_type,
+                                chunk.content,
+                            ]
+                        ).encode("utf-8")
+                    ).hexdigest()
+                    cur.execute(
+                        """
+                        INSERT INTO policy_chunks (
+                            source_path,
+                            section_title,
+                            content,
+                            policy_type,
+                            content_hash
+                        )
+                        VALUES (%s, %s, %s, %s, %s)
+                        ON CONFLICT (content_hash) DO UPDATE SET
+                            source_path = EXCLUDED.source_path,
+                            section_title = EXCLUDED.section_title,
+                            content = EXCLUDED.content,
+                            policy_type = EXCLUDED.policy_type,
+                            updated_at = now()
+                        """,
+                        (
+                            chunk.source_path,
+                            chunk.section_title,
+                            chunk.content,
+                            chunk.policy_type,
+                            content_hash,
+                        ),
+                    )
+        return {
+            "indexed_documents": len(self._candidate_files()),
+            "indexed_chunks": len(chunks),
+        }
 
+    def _load_indexed_chunks(self) -> list[PolicyChunk]:
+        self.ensure_schema()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT source_path, section_title, content, policy_type
+                    FROM policy_chunks
+                    ORDER BY id
+                    """
+                )
+                return [
+                    PolicyChunk(
+                        source_path=row[0],
+                        section_title=row[1],
+                        content=row[2],
+                        policy_type=row[3],
+                    )
+                    for row in cur.fetchall()
+                ]
+
+    def has_policy(self) -> bool:
+        self.ensure_schema()
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT count(*) FROM policy_chunks")
+                count = int(cur.fetchone()[0])
+        if count == 0 and self._candidate_files():
+            return self.sync()["indexed_chunks"] > 0
+        return count > 0
+
+    def search(self, request: ReviewRequest, top_k: int = 5) -> list[PolicyChunk]:
+        chunks = self._load_indexed_chunks()
+        if not chunks and self._candidate_files():
+            self.sync()
+            chunks = self._load_indexed_chunks()
+        return _score_chunks(chunks, request, top_k)
+
+
+def create_policy_index(settings: Settings) -> LocalPolicyIndex:
+    if settings.rag_backend == "postgres":
+        if not settings.database_url:
+            raise RuntimeError("DATABASE_URL is required when RAG_BACKEND=postgres")
+        return PostgresPolicyIndex(settings.policy_root, settings.database_url)
+    return LocalPolicyIndex(settings.policy_root)

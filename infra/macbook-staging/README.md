@@ -9,7 +9,7 @@ GitHub push/main or manual dispatch
   -> CI: ruff, pytest, local smoke review
   -> GitHub runner joins tailnet with tailscale/github-action
   -> SSH/SCP to MacBook over Tailscale
-  -> docker compose up --build -d
+  -> docker compose up --build -d: api + postgres(pgvector)
   -> /healthz and /v1/reviews smoke test
 ```
 
@@ -114,6 +114,7 @@ GitHub repository settings에서 `Secrets`를 추가한다.
 | `MACBOOK_SSH_KEY` | 필수 | MacBook에 접속할 private SSH key 또는 그 base64 값 |
 | `AI_REVIEWER_TOKEN` | 필수 | staging API Bearer token |
 | `UPSTAGE_API_KEY` | litellm 모드 필수 | Upstage Solar3 API key |
+| `POSTGRES_PASSWORD` | 선택 | staging Postgres password. 없으면 `reviewer` |
 | `STAGING_GITHUB_TOKEN` | github publish 모드 필수 | PR comment 작성용 GitHub token |
 
 ## 4. GitHub Repository Variables
@@ -124,22 +125,29 @@ GitHub repository settings에서 `Variables`를 추가한다.
 | --- | --- | --- |
 | `MACBOOK_APP_DIR` | `/Users/Shared/ai-code-review-agent` | MacBook 배포 디렉터리 |
 | `STAGING_PORT` | `8080` | API 서버 포트 |
+| `POSTGRES_DB` | `reviewer` | staging Postgres database |
+| `POSTGRES_USER` | `reviewer` | staging Postgres user |
+| `SOLAR3_MODEL` | `solar3` | LiteLLM에 전달할 실제 Solar3 model id |
+| `SOLAR3_LOW_REASONING_EFFORT` | `low` | `solar3-low` review tier의 추론 강도 |
+| `SOLAR3_MEDIUM_REASONING_EFFORT` | `medium` | `solar3-medium` review tier의 추론 강도 |
+| `SOLAR3_HIGH_REASONING_EFFORT` | `high` | `solar3-high` review tier의 추론 강도 |
 
-처음 검증은 다음 조합을 권장한다.
+기본 배포 조합은 다음과 같다.
 
 ```text
-llm_mode=mock
+llm_mode=litellm
 publish_mode=local
 ```
 
-이 조합은 `UPSTAGE_API_KEY`와 `STAGING_GITHUB_TOKEN` 없이도 배포 smoke test가 가능하다.
+이 조합은 실제 Solar3 호출까지 확인한다. API key 없이 네트워크와 Docker 배포만 먼저
+확인해야 할 때만 `llm_mode=mock`을 사용한다.
 
 ## 5. 첫 배포 순서
 
 1. MacBook에서 Docker Desktop과 Tailscale 실행 확인
 2. GitHub Secrets와 Variables 등록
 3. GitHub Actions에서 `Deploy to MacBook Staging` workflow 수동 실행
-4. 입력값은 `llm_mode=mock`, `publish_mode=local`로 시작
+4. 입력값은 기본값인 `llm_mode=litellm`, `publish_mode=local`로 시작
 5. workflow의 test job 통과 확인
 6. deploy job에서 Tailscale ping, SSH upload, Docker Compose 실행 확인
 7. workflow 마지막 smoke test에서 `/v1/reviews` 성공 확인
@@ -150,7 +158,7 @@ MacBook에서 직접 확인:
 cd /Users/Shared/ai-code-review-agent
 docker compose ps
 curl -fsS http://127.0.0.1:8080/healthz
-tail -n 40 .local-data/reviews.json
+docker compose exec postgres psql -U reviewer -d reviewer -c "select review_run_id, route_name, model_tier, created_at from review_runs order by created_at desc limit 5;"
 ls -la .local-data/comments
 ```
 
@@ -182,17 +190,17 @@ GITHUB_TOKEN=<token-with-pr-comment-permission>
 
 ## 7. 운영 모드 전환
 
-처음:
-
-```text
-llm_mode=mock
-publish_mode=local
-```
-
-Solar3 호출 확인:
+배포 기본값:
 
 ```text
 llm_mode=litellm
+publish_mode=local
+```
+
+API key 없이 배포 통로만 확인:
+
+```text
+llm_mode=mock
 publish_mode=local
 ```
 
@@ -203,7 +211,8 @@ llm_mode=litellm
 publish_mode=github
 ```
 
-이 순서로 진행하면 문제 발생 위치를 분리하기 쉽다.
+`publish_mode=github`는 staging API가 정상 동작하고 실제 PR comment 권한까지
+확인할 때 사용한다.
 
 ## 8. 자주 막히는 지점
 
@@ -236,7 +245,8 @@ publish_mode=github
 
 1. Docker Desktop이 실행 중인지
 2. SSH non-interactive 환경에서 `docker`가 PATH에 있는지
-3. workflow는 `/opt/homebrew/bin:/usr/local/bin`을 PATH에 추가한다.
+3. workflow는 `/Applications/Docker.app/Contents/Resources/bin:/opt/homebrew/bin:/usr/local/bin`을 PATH에 추가한다.
+4. `docker compose`가 없으면 workflow가 `docker-compose` fallback을 시도한다.
 
 `keychain cannot be accessed because the current session does not allow user interaction`가 나오면 SSH로 실행된 Docker가 macOS Keychain credential helper를 열지 못한 것이다. staging workflow는 배포 중 `DOCKER_CONFIG`를 앱 디렉터리의 `.docker-ci`로 지정해서 MacBook 사용자 계정의 Docker credential helper를 우회한다.
 
@@ -247,6 +257,7 @@ publish_mode=github
 1. `AI_REVIEWER_TOKEN` secret과 요청 Authorization 값이 같은지
 2. `docker compose logs api` 출력
 3. `.env`가 MacBook 앱 디렉터리에 생성됐는지
+4. `docker compose exec postgres pg_isready -U reviewer -d reviewer` 성공 여부
 
 ### GitHub comment가 안 달림
 
@@ -264,9 +275,9 @@ MacBook staging에서 다음을 확인한 뒤 GCP 또는 실제 서버로 넘어
 1. Docker staging 배포 성공
 2. `/healthz` 성공
 3. sample review payload 성공
-4. failure payload가 `solar3-low`로 라우팅
-5. policy payload가 `solar3-medium`으로 라우팅
-6. high-risk payload가 `solar3-high`로 라우팅
+4. failure payload가 `solar3-low` review tier와 `low` 추론 강도로 라우팅
+5. policy payload가 `solar3-medium` review tier와 `medium` 추론 강도로 라우팅
+6. high-risk payload가 `solar3-high` review tier와 `high` 추론 강도로 라우팅
 7. `llm_mode=litellm` 실제 Solar3 호출 성공
 8. `publish_mode=github` 실제 PR comment 성공
-9. 로그와 `.local-data/reviews.json`에서 실행 이력 확인
+9. 로그와 `review_runs` 테이블에서 실행 이력 확인

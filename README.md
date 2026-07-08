@@ -1,7 +1,7 @@
 # AI Code Review Agent
 
 GitHub Pull Request의 diff, lint/test 결과, 저장소 정책을 분석해 상황별로
-Solar3 low/medium/high 모델 경로를 선택하는 AI 코드 리뷰 에이전트입니다.
+동일한 Solar3 모델의 low/medium/high 추론 강도를 선택하는 AI 코드 리뷰 에이전트입니다.
 
 ## Local Quickstart
 
@@ -39,23 +39,24 @@ curl -X POST http://localhost:8080/v1/reviews \
 
 ## Model Modes
 
-기본값은 로컬 개발용 mock 모드입니다.
-
-```text
-LLM_MODE=mock
-PUBLISH_MODE=local
-```
-
-LiteLLM과 Upstage Solar3 API를 사용하려면 `.env`에서 다음 값을 설정합니다.
-실제 LiteLLM model id는 사용하는 Upstage/LiteLLM 계정 설정에 맞게 바꿀 수
-있도록 환경 변수로 분리했습니다.
+Docker/배포 기본값은 LiteLLM을 통해 Solar3 모델을 호출하는 모드입니다.
+오프라인 개발이나 CI smoke test에서는 `LLM_MODE=mock`으로 deterministic reviewer를
+사용할 수 있습니다.
 
 ```text
 LLM_MODE=litellm
 UPSTAGE_API_KEY=...
-SOLAR3_LOW_MODEL=...
-SOLAR3_MEDIUM_MODEL=...
-SOLAR3_HIGH_MODEL=...
+PUBLISH_MODE=local
+```
+
+실제 LiteLLM model id는 하나의 `SOLAR3_MODEL`로 관리하고, 라우팅 결과에 따라
+`reasoning_effort`만 low/medium/high로 다르게 전달합니다.
+
+```text
+SOLAR3_MODEL=...
+SOLAR3_LOW_REASONING_EFFORT=low
+SOLAR3_MEDIUM_REASONING_EFFORT=medium
+SOLAR3_HIGH_REASONING_EFFORT=high
 ```
 
 GitHub에 댓글을 게시하려면 다음 값을 설정합니다.
@@ -67,17 +68,18 @@ GITHUB_TOKEN=...
 
 ## Routing Rules
 
-| Condition | Route | Model tier |
+| Condition | Route | Review tier / reasoning effort |
 | --- | --- | --- |
-| syntax, lint, or test failed | `simple_failure_review` | `solar3-low` |
-| checks passed and repository policy exists | `policy_context_review` | `solar3-medium` |
-| high-risk paths, large diff, or low confidence | `deep_quality_review` | `solar3-high` |
+| syntax, lint, or test failed | `simple_failure_review` | `solar3-low` / `low` |
+| checks passed and repository policy exists | `policy_context_review` | `solar3-medium` / `medium` |
+| high-risk paths, large diff, or low confidence | `deep_quality_review` | `solar3-high` / `high` |
 
 ## Repository Policies
 
-로컬 MVP에서는 `POLICY_ROOT` 아래 Markdown 파일을 간단한 keyword retrieval로
-검색합니다. 향후 GCP 배포 단계에서는 같은 `LocalPolicyIndex.search()` 계약을
-pgvector 기반 검색 서비스로 교체하면 됩니다.
+Docker/배포 기본값은 Postgres + pgvector에 정책 chunk를 동기화한 뒤 검색합니다.
+`POLICY_ROOT` 아래 Markdown, CODEOWNERS, PR template을 policy chunk로 분리해
+`policy_chunks` 테이블에 저장합니다. DB가 없는 로컬 개발에서는 같은 인터페이스로
+파일 기반 keyword retrieval fallback을 사용할 수 있습니다.
 
 기본 샘플:
 
@@ -123,7 +125,7 @@ AI_REVIEWER_TOKEN=<server-token>
 1. GitHub Actions에서 ruff, pytest, local smoke review를 실행합니다.
 2. `tailscale/github-action@v4`로 GitHub runner를 tailnet에 연결합니다.
 3. SSH/SCP로 현재 revision을 MacBook에 업로드합니다.
-4. MacBook에서 `docker compose up --build -d`를 실행합니다.
+4. MacBook에서 `api + postgres(pgvector)` compose stack을 실행합니다.
 5. `/healthz`와 `/v1/reviews` smoke test를 실행합니다.
 
 기본 설정은 Tailscale `TS_AUTHKEY` secret 방식이며, MacBook host/user도 GitHub Secrets에서 읽습니다. `MACBOOK_SSH_KEY` secret에는 SSH private key 원문 또는 base64 인코딩된 private key를 넣습니다. 줄바꿈 문제를 피하려면 base64 방식을 권장합니다.
@@ -135,7 +137,7 @@ AI_REVIEWER_TOKEN=<server-token>
 ```text
 backend/app/core        domain models, routing, security
 backend/app/services    RAG, prompt, LLM, publisher, orchestrator
-backend/app/storage     local JSON store
+backend/app/storage     local JSON and PostgreSQL review stores
 github-action           PR collector script for GitHub Actions
 policies                sample repository review policies
 sample-data             local review request payloads

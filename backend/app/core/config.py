@@ -11,15 +11,19 @@ class Settings:
     api_token: str | None = None
     llm_mode: str = "mock"
     publish_mode: str = "local"
+    storage_backend: str = "local"
+    rag_backend: str = "local"
+    database_url: str | None = None
     upstage_api_key: str | None = None
     github_token: str | None = None
     policy_root: Path = Path("policies")
     local_data_dir: Path = Path(".local-data")
     review_store_path: Path = Path(".local-data/reviews.json")
     comment_output_dir: Path = Path(".local-data/comments")
-    solar3_low_model: str = "solar3-low"
-    solar3_medium_model: str = "solar3-medium"
-    solar3_high_model: str = "solar3-high"
+    solar3_model: str = "solar3"
+    solar3_low_reasoning_effort: str = "low"
+    solar3_medium_reasoning_effort: str = "medium"
+    solar3_high_reasoning_effort: str = "high"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -29,6 +33,11 @@ class Settings:
             api_token=os.getenv("AI_REVIEWER_TOKEN") or None,
             llm_mode=os.getenv("LLM_MODE", "mock").lower(),
             publish_mode=os.getenv("PUBLISH_MODE", "local").lower(),
+            database_url=os.getenv("DATABASE_URL") or None,
+            storage_backend=os.getenv("STORAGE_BACKEND", "").lower()
+            or ("postgres" if os.getenv("DATABASE_URL") else "local"),
+            rag_backend=os.getenv("RAG_BACKEND", "").lower()
+            or ("postgres" if os.getenv("DATABASE_URL") else "local"),
             upstage_api_key=os.getenv("UPSTAGE_API_KEY") or None,
             github_token=os.getenv("GITHUB_TOKEN") or None,
             policy_root=Path(os.getenv("POLICY_ROOT", "policies")),
@@ -39,17 +48,26 @@ class Settings:
             comment_output_dir=Path(
                 os.getenv("COMMENT_OUTPUT_DIR", str(local_data_dir / "comments"))
             ),
-            solar3_low_model=os.getenv("SOLAR3_LOW_MODEL", "solar3-low"),
-            solar3_medium_model=os.getenv("SOLAR3_MEDIUM_MODEL", "solar3-medium"),
-            solar3_high_model=os.getenv("SOLAR3_HIGH_MODEL", "solar3-high"),
+            solar3_model=os.getenv("SOLAR3_MODEL", "solar3"),
+            solar3_low_reasoning_effort=os.getenv("SOLAR3_LOW_REASONING_EFFORT", "low"),
+            solar3_medium_reasoning_effort=(
+                os.getenv("SOLAR3_MEDIUM_REASONING_EFFORT")
+                or os.getenv("SOLAR3_MIDIUM_REASONING_EFFORT")
+                or "medium"
+            ),
+            solar3_high_reasoning_effort=os.getenv("SOLAR3_HIGH_REASONING_EFFORT", "high"),
         )
 
     def model_for_tier(self, model_tier: str) -> str:
-        if model_tier == "solar3-low":
-            return self.solar3_low_model
-        if model_tier == "solar3-medium":
-            return self.solar3_medium_model
-        if model_tier == "solar3-high":
-            return self.solar3_high_model
+        if model_tier.startswith("solar3-"):
+            return self.solar3_model
         return model_tier
 
+    def reasoning_effort_for_tier(self, model_tier: str) -> str:
+        if model_tier == "solar3-low":
+            return self.solar3_low_reasoning_effort
+        if model_tier == "solar3-medium":
+            return self.solar3_medium_reasoning_effort
+        if model_tier == "solar3-high":
+            return self.solar3_high_reasoning_effort
+        return self.solar3_medium_reasoning_effort

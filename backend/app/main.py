@@ -11,8 +11,8 @@ from backend.app.core.config import Settings
 from backend.app.core.routing import select_route
 from backend.app.core.schemas import PullRequestFeatures, ReviewRequest
 from backend.app.services.orchestrator import create_orchestrator
-from backend.app.services.rag import LocalPolicyIndex
-from backend.app.storage.local_store import LocalJsonStore
+from backend.app.services.rag import create_policy_index
+from backend.app.storage.factory import create_review_store
 
 settings = Settings.from_env()
 orchestrator = create_orchestrator(settings)
@@ -32,7 +32,14 @@ def _authorize(authorization: str | None) -> None:
 
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
-    return {"status": "ok", "database": "local-json", "queue": "inline"}
+    try:
+        create_review_store(settings).healthcheck()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"{settings.storage_backend} database unavailable: {exc}",
+        ) from exc
+    return {"status": "ok", "database": settings.storage_backend, "queue": "inline"}
 
 
 @app.post("/v1/reviews", status_code=status.HTTP_202_ACCEPTED)
@@ -60,7 +67,7 @@ def get_review(
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     _authorize(authorization)
-    store = LocalJsonStore(settings.review_store_path)
+    store = create_review_store(settings)
     record = store.get_review(review_run_id)
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="review not found")
@@ -100,6 +107,5 @@ def sync_policies(
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     _authorize(authorization)
-    result = LocalPolicyIndex(settings.policy_root).sync()
+    result = create_policy_index(settings).sync()
     return {"repository_id": repository_id, "status": "completed", **result}
-

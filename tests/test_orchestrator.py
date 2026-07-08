@@ -56,6 +56,8 @@ class OrchestratorTest(unittest.TestCase):
 
             self.assertEqual(result.status, "completed")
             self.assertEqual(result.route.name, "policy_context_review")
+            self.assertEqual(result.model_call.model, "solar3")
+            self.assertEqual(result.model_call.reasoning_effort, "medium")
             self.assertTrue(result.findings)
             self.assertTrue(settings.review_store_path.exists())
             self.assertTrue(list(settings.comment_output_dir.glob("*.md")))

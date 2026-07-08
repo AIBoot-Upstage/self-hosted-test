@@ -256,6 +256,7 @@ class ModelCallUsage:
     completion_tokens: int = 0
     latency_ms: int = 0
     status: str = "completed"
+    reasoning_effort: str | None = None
 
     def to_dict(self) -> JsonDict:
         return asdict(self)
@@ -287,4 +288,3 @@ class ReviewResult:
             "retrieved_policies": [chunk.to_dict() for chunk in self.retrieved_policies],
             "created_at": self.created_at,
         }
-

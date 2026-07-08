@@ -19,7 +19,9 @@ def format_review_markdown(result: ReviewResult) -> str:
         "## AI Code Review",
         "",
         f"- Route: `{result.route.name}`",
-        f"- Model tier: `{result.route.model_tier}`",
+        f"- Review tier: `{result.route.model_tier}`",
+        f"- Model: `{result.model_call.model}`",
+        f"- Reasoning effort: `{result.model_call.reasoning_effort or 'default'}`",
         f"- Risk: `{result.summary.overall_risk}`",
         f"- Summary: {result.summary.short_comment}",
         "",
@@ -87,4 +89,3 @@ def create_publisher(settings: Settings) -> ReviewPublisher:
     if settings.publish_mode == "github" and settings.github_token:
         return GitHubPublisher(settings.github_token)
     return LocalPublisher(settings.comment_output_dir)
-

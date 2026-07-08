@@ -133,6 +133,7 @@ class MockLLMClient:
                 )
 
         model = self.settings.model_for_tier(route.model_tier)
+        reasoning_effort = self.settings.reasoning_effort_for_tier(route.model_tier)
         latency_ms = int((time.perf_counter() - start) * 1000)
         usage = ModelCallUsage(
             provider="mock",
@@ -140,6 +141,7 @@ class MockLLMClient:
             prompt_tokens=sum(len(message["content"]) for message in messages) // 4,
             completion_tokens=250,
             latency_ms=latency_ms,
+            reasoning_effort=reasoning_effort,
         )
         summary = ReviewSummary(
             route_name=route.name,
@@ -170,12 +172,16 @@ class LiteLLMClient:
 
         start = time.perf_counter()
         model = self.settings.model_for_tier(route.model_tier)
-        response = completion(
-            model=model,
-            messages=messages,
-            api_key=self.settings.upstage_api_key,
-            temperature=0.1,
-        )
+        reasoning_effort = self.settings.reasoning_effort_for_tier(route.model_tier)
+        completion_kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "api_key": self.settings.upstage_api_key,
+            "temperature": 0.1,
+        }
+        if reasoning_effort:
+            completion_kwargs["reasoning_effort"] = reasoning_effort
+        response = completion(**completion_kwargs)
         latency_ms = int((time.perf_counter() - start) * 1000)
         content = response.choices[0].message.content
         parsed = _parse_json(content)
@@ -196,6 +202,7 @@ class LiteLLMClient:
             prompt_tokens=int(getattr(usage_payload, "prompt_tokens", 0) or 0),
             completion_tokens=int(getattr(usage_payload, "completion_tokens", 0) or 0),
             latency_ms=latency_ms,
+            reasoning_effort=reasoning_effort,
         )
         return summary, findings, usage
 
@@ -238,4 +245,3 @@ def create_llm_client(settings: Settings) -> LLMClient:
     if settings.llm_mode == "litellm":
         return LiteLLMClient(settings)
     return MockLLMClient(settings)
-

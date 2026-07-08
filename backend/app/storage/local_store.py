@@ -25,6 +25,9 @@ class LocalJsonStore:
                 return record
         return None
 
+    def healthcheck(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+
     def _read_records(self) -> list[dict[str, object]]:
         if not self.path.exists():
             return []
@@ -33,4 +36,3 @@ class LocalJsonStore:
         except json.JSONDecodeError:
             return []
         return payload if isinstance(payload, list) else []
-

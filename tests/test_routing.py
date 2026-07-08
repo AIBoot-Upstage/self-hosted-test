@@ -25,7 +25,7 @@ def _request(checks, changed_files=None):
 
 
 class RoutingTest(unittest.TestCase):
-    def test_failed_test_routes_to_low_model(self):
+    def test_failed_test_routes_to_low_tier(self):
         request = _request(
             [{"kind": "test", "status": "completed", "conclusion": "failure", "summary": "failed"}]
         )
@@ -35,7 +35,7 @@ class RoutingTest(unittest.TestCase):
         self.assertEqual(route.model_tier, "solar3-low")
         self.assertFalse(route.use_rag)
 
-    def test_policy_context_routes_to_medium_model(self):
+    def test_policy_context_routes_to_medium_tier(self):
         request = _request(
             [
                 {"kind": "lint", "status": "completed", "conclusion": "success", "summary": ""},
@@ -48,7 +48,7 @@ class RoutingTest(unittest.TestCase):
         self.assertEqual(route.model_tier, "solar3-medium")
         self.assertTrue(route.use_rag)
 
-    def test_high_risk_path_routes_to_high_model(self):
+    def test_high_risk_path_routes_to_high_tier(self):
         request = _request(
             [{"kind": "test", "status": "completed", "conclusion": "success", "summary": ""}],
             changed_files=[

@@ -6,7 +6,7 @@ on:
       llm_mode:
         description: "LLM mode for staging"
         required: true
-        default: "mock"
+        default: "litellm"
         type: choice
         options:
           - mock
@@ -141,11 +141,18 @@ jobs:
 
       - name: Create staging env file
         env:
-          INPUT_LLM_MODE: ${{ inputs.llm_mode || 'mock' }}
+          INPUT_LLM_MODE: ${{ inputs.llm_mode || 'litellm' }}
           INPUT_PUBLISH_MODE: ${{ inputs.publish_mode || 'local' }}
           AI_REVIEWER_TOKEN: ${{ secrets.AI_REVIEWER_TOKEN }}
           UPSTAGE_API_KEY: ${{ secrets.UPSTAGE_API_KEY }}
           STAGING_GITHUB_TOKEN: ${{ secrets.STAGING_GITHUB_TOKEN }}
+          POSTGRES_DB: ${{ vars.POSTGRES_DB || 'reviewer' }}
+          POSTGRES_USER: ${{ vars.POSTGRES_USER || 'reviewer' }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD || 'reviewer' }}
+          SOLAR3_MODEL: ${{ vars.SOLAR3_MODEL || 'solar3' }}
+          SOLAR3_LOW_REASONING_EFFORT: ${{ vars.SOLAR3_LOW_REASONING_EFFORT || 'low' }}
+          SOLAR3_MEDIUM_REASONING_EFFORT: ${{ vars.SOLAR3_MEDIUM_REASONING_EFFORT || 'medium' }}
+          SOLAR3_HIGH_REASONING_EFFORT: ${{ vars.SOLAR3_HIGH_REASONING_EFFORT || 'high' }}
         run: |
           if [ "${INPUT_LLM_MODE}" = "litellm" ]; then
             test -n "${UPSTAGE_API_KEY}" || (echo "UPSTAGE_API_KEY secret is required for litellm mode" && exit 1)
@@ -161,11 +168,18 @@ jobs:
           AI_REVIEWER_TOKEN=${AI_REVIEWER_TOKEN}
           LLM_MODE=${INPUT_LLM_MODE}
           PUBLISH_MODE=${INPUT_PUBLISH_MODE}
+          STORAGE_BACKEND=postgres
+          RAG_BACKEND=postgres
+          POSTGRES_DB=${POSTGRES_DB}
+          POSTGRES_USER=${POSTGRES_USER}
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+          DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
           UPSTAGE_API_KEY=${UPSTAGE_API_KEY}
           GITHUB_TOKEN=${STAGING_GITHUB_TOKEN}
-          SOLAR3_LOW_MODEL=solar3-low
-          SOLAR3_MEDIUM_MODEL=solar3-medium
-          SOLAR3_HIGH_MODEL=solar3-high
+          SOLAR3_MODEL=${SOLAR3_MODEL}
+          SOLAR3_LOW_REASONING_EFFORT=${SOLAR3_LOW_REASONING_EFFORT}
+          SOLAR3_MEDIUM_REASONING_EFFORT=${SOLAR3_MEDIUM_REASONING_EFFORT}
+          SOLAR3_HIGH_REASONING_EFFORT=${SOLAR3_HIGH_REASONING_EFFORT}
           POLICY_ROOT=policies
           LOCAL_DATA_DIR=.local-data
           REVIEW_STORE_PATH=.local-data/reviews.json
@@ -193,7 +207,7 @@ jobs:
              STAGING_ENV_FILE='/tmp/ai-code-review-agent-${GITHUB_SHA}.env' \
              bash -s" <<'REMOTE'
           set -euo pipefail
-          export PATH="/opt/homebrew/bin:/usr/local/bin:${PATH}"
+          export PATH="/Applications/Docker.app/Contents/Resources/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
 
           mkdir -p "${MACBOOK_APP_DIR}"
           find "${MACBOOK_APP_DIR}" -mindepth 1 -maxdepth 1 \
@@ -212,10 +226,34 @@ jobs:
           mkdir -p "${DOCKER_CONFIG}"
           printf '{"auths":{}}\n' > "${DOCKER_CONFIG}/config.json"
 
-          docker compose up --build -d
-          docker compose ps
-          curl -fsS "http://127.0.0.1:${STAGING_PORT}/healthz"
+          if docker compose version >/dev/null 2>&1; then
+            COMPOSE_CMD=(docker compose)
+          elif command -v docker-compose >/dev/null 2>&1; then
+            COMPOSE_CMD=(docker-compose)
+          else
+            echo "Docker Compose is required. Install Docker Desktop compose plugin or docker-compose."
+            exit 1
+          fi
+
+          "${COMPOSE_CMD[@]}" up --build -d
+          "${COMPOSE_CMD[@]}" ps
+          for attempt in {1..30}; do
+            if curl -fsS "http://127.0.0.1:${STAGING_PORT}/healthz"; then
+              break
+            fi
+            if [ "${attempt}" = "30" ]; then
+              "${COMPOSE_CMD[@]}" logs --tail=120 api postgres
+              exit 1
+            fi
+            sleep 2
+          done
           REMOTE
+
+      - name: Sync staging policies through Tailscale
+        run: |
+          curl -fsS \
+            -X POST "http://${MACBOOK_HOST}:${STAGING_PORT}/v1/repositories/staging/policies/sync" \
+            -H "Authorization: Bearer ${{ secrets.AI_REVIEWER_TOKEN }}"
 
       - name: Staging smoke review through Tailscale
         run: |

@@ -8,8 +8,8 @@ from backend.app.core.schemas import ReviewRequest, ReviewResult
 from backend.app.services.llm import LLMClient, create_llm_client
 from backend.app.services.prompt_builder import build_review_messages
 from backend.app.services.publisher import ReviewPublisher, create_publisher
-from backend.app.services.rag import LocalPolicyIndex
-from backend.app.storage.local_store import LocalJsonStore
+from backend.app.services.rag import LocalPolicyIndex, create_policy_index
+from backend.app.storage.factory import ReviewStore, create_review_store
 
 
 class ReviewOrchestrator:
@@ -18,7 +18,7 @@ class ReviewOrchestrator:
         policy_index: LocalPolicyIndex,
         llm_client: LLMClient,
         publisher: ReviewPublisher,
-        store: LocalJsonStore,
+        store: ReviewStore,
     ) -> None:
         self.policy_index = policy_index
         self.llm_client = llm_client
@@ -56,9 +56,8 @@ class ReviewOrchestrator:
 def create_orchestrator(settings: Settings | None = None) -> ReviewOrchestrator:
     resolved_settings = settings or Settings.from_env()
     return ReviewOrchestrator(
-        policy_index=LocalPolicyIndex(resolved_settings.policy_root),
+        policy_index=create_policy_index(resolved_settings),
         llm_client=create_llm_client(resolved_settings),
         publisher=create_publisher(resolved_settings),
-        store=LocalJsonStore(resolved_settings.review_store_path),
+        store=create_review_store(resolved_settings),
     )
-
