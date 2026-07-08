@@ -91,20 +91,32 @@ jobs:
           import re
           from pathlib import Path
 
-          key_b64 = re.sub(r"\s+", "", os.getenv("MACBOOK_SSH_KEY", ""))
-          if not key_b64:
+          raw_secret = os.getenv("MACBOOK_SSH_KEY", "").strip()
+          if not raw_secret:
               raise SystemExit("MACBOOK_SSH_KEY is empty")
 
-          try:
-              decoded = base64.b64decode(key_b64, validate=True).decode("utf-8")
-          except Exception as exc:
-              raise SystemExit("MACBOOK_SSH_KEY must be a base64-encoded private key") from exc
+          candidate = raw_secret.replace("\\n", "\n")
+          if "PRIVATE KEY" in candidate.splitlines()[0]:
+              decoded = candidate
+          elif candidate.startswith("ssh-"):
+              raise SystemExit(
+                  "MACBOOK_SSH_KEY must be a PRIVATE key, not the .pub file or raw public key"
+              )
+          else:
+              key_b64 = re.sub(r"\s+", "", raw_secret)
+              try:
+                  decoded = base64.b64decode(key_b64, validate=True).decode("utf-8")
+              except Exception as exc:
+                  raise SystemExit(
+                      "MACBOOK_SSH_KEY must be either a raw private key or "
+                      "a base64-encoded private key"
+                  ) from exc
 
           normalized = decoded.replace("\r\n", "\n").replace("\r", "\n").strip() + "\n"
           first_line = normalized.splitlines()[0] if normalized.splitlines() else ""
           if "PRIVATE KEY" not in first_line:
               raise SystemExit(
-                  "MACBOOK_SSH_KEY must be the base64 of the PRIVATE key, "
+                  "MACBOOK_SSH_KEY must be the PRIVATE key or the base64 of the PRIVATE key, "
                   "not the .pub file or raw public key"
               )
 

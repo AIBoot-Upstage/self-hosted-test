@@ -126,7 +126,7 @@ AI_REVIEWER_TOKEN=<server-token>
 4. MacBook에서 `docker compose up --build -d`를 실행합니다.
 5. `/healthz`와 `/v1/reviews` smoke test를 실행합니다.
 
-기본 설정은 Tailscale `TS_AUTHKEY` secret 방식이며, MacBook host/user도 GitHub Secrets에서 읽습니다. `MACBOOK_SSH_KEY` secret에는 SSH private key 원문이 아니라 base64 인코딩된 private key를 넣습니다.
+기본 설정은 Tailscale `TS_AUTHKEY` secret 방식이며, MacBook host/user도 GitHub Secrets에서 읽습니다. `MACBOOK_SSH_KEY` secret에는 SSH private key 원문 또는 base64 인코딩된 private key를 넣습니다. 줄바꿈 문제를 피하려면 base64 방식을 권장합니다.
 
 자세한 준비 절차는 [infra/macbook-staging/README.md](infra/macbook-staging/README.md)를 참고하세요.
 

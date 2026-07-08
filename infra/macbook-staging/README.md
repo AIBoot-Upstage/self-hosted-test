@@ -48,7 +48,7 @@ cat ./macbook_staging_ed25519.pub >> ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
 ```
 
-GitHub Secret에는 private key를 넣어야 한다. 줄바꿈 문제를 피하려면 base64로 넣는 방식을 권장한다.
+GitHub Secret에는 private key를 넣어야 한다. 줄바꿈 문제를 피하려면 base64로 넣는 방식을 권장하지만, workflow는 raw private key 원문도 지원한다.
 
 macOS:
 
@@ -62,7 +62,7 @@ Linux:
 base64 -w0 ./macbook_staging_ed25519
 ```
 
-복사한 값을 GitHub secret `MACBOOK_SSH_KEY`에 넣는다. 이름은 `MACBOOK_SSH_KEY`이지만 값은 private key 원문이 아니라 base64 인코딩된 private key다.
+복사한 값을 GitHub secret `MACBOOK_SSH_KEY`에 넣는다. 권장값은 base64 인코딩된 private key다. raw private key 원문을 넣어도 동작하지만, 줄바꿈이 깨질 수 있으므로 base64 방식이 더 안전하다.
 
 권장 앱 경로:
 
@@ -111,7 +111,7 @@ GitHub repository settings에서 `Secrets`를 추가한다.
 | `MACBOOK_HOST` | `100.x.y.z` | MacBook Tailscale IP 또는 MagicDNS 이름 |
 | `MACBOOK_USER` | `hojin` | MacBook SSH 사용자명 |
 | `TS_AUTHKEY` | `tskey-auth-...` | GitHub runner를 tailnet에 붙일 Tailscale auth key |
-| `MACBOOK_SSH_KEY` | 필수 | MacBook에 접속할 private SSH key의 base64 값 |
+| `MACBOOK_SSH_KEY` | 필수 | MacBook에 접속할 private SSH key 또는 그 base64 값 |
 | `AI_REVIEWER_TOKEN` | 필수 | staging API Bearer token |
 | `UPSTAGE_API_KEY` | litellm 모드 필수 | Upstage Solar3 API key |
 | `STAGING_GITHUB_TOKEN` | github publish 모드 필수 | PR comment 작성용 GitHub token |
@@ -223,12 +223,12 @@ publish_mode=github
 
 1. macOS Remote Login이 켜져 있는지
 2. `MACBOOK_USER`가 실제 사용자명인지
-3. `MACBOOK_SSH_KEY`가 private key를 base64로 인코딩한 값인지
+3. `MACBOOK_SSH_KEY`가 private key 원문 또는 private key를 base64로 인코딩한 값인지
 4. private key에 대응하는 public key가 MacBook `authorized_keys`에 들어갔는지
 5. private key에 passphrase가 없는지
 6. Tailscale ACL에서 port 22 접근이 허용되는지
 
-`Load key "...": error in libcrypto`가 나오면 대부분 private key secret이 줄바꿈 없이 깨졌거나, public key를 잘못 넣었거나, passphrase가 걸린 key를 넣은 경우다. `MACBOOK_SSH_KEY`에는 반드시 `macbook_staging_ed25519` private key 파일을 base64 인코딩한 값을 넣어야 한다. `macbook_staging_ed25519.pub` 파일을 넣으면 안 된다.
+`Load key "...": error in libcrypto`가 나오면 대부분 private key secret이 줄바꿈 없이 깨졌거나, public key를 잘못 넣었거나, passphrase가 걸린 key를 넣은 경우다. `MACBOOK_SSH_KEY`에는 반드시 `macbook_staging_ed25519` private key 파일의 원문 또는 base64 인코딩 값을 넣어야 한다. `macbook_staging_ed25519.pub` 파일을 넣으면 안 된다.
 
 ### Docker 명령 실패
 
