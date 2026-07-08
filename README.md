@@ -123,12 +123,15 @@ AI_REVIEWER_TOKEN=<server-token>
 흐름:
 
 1. GitHub Actions에서 ruff, pytest, local smoke review를 실행합니다.
-2. `tailscale/github-action@v4`로 GitHub runner를 tailnet에 연결합니다.
-3. SSH/SCP로 현재 revision을 MacBook에 업로드합니다.
-4. MacBook에서 `api + postgres(pgvector)` compose stack을 실행합니다.
-5. `/healthz`와 `/v1/reviews` smoke test를 실행합니다.
+2. GitHub Actions에서 Docker image를 빌드해 GHCR에 push합니다.
+3. `tailscale/github-action@v4`로 GitHub runner를 tailnet에 연결합니다.
+4. SSH/SCP로 `.env`와 staging compose 파일만 MacBook에 업로드합니다.
+5. MacBook에서 GHCR image를 pull하고 `api + postgres(pgvector)` compose stack을 실행합니다.
+6. `/healthz`와 `/v1/reviews` smoke test를 실행합니다.
 
 기본 설정은 Tailscale `TS_AUTHKEY` secret 방식이며, MacBook host/user도 GitHub Secrets에서 읽습니다. `MACBOOK_SSH_KEY` secret에는 SSH private key 원문 또는 base64 인코딩된 private key를 넣습니다. 줄바꿈 문제를 피하려면 base64 방식을 권장합니다.
+
+GHCR image push/pull은 기본적으로 workflow `GITHUB_TOKEN`을 사용합니다. 조직 정책 때문에 package write 권한을 받을 수 없으면 `GHCR_TOKEN` secret과 `GHCR_USER` variable을 설정해 PAT 기반으로 배포할 수 있습니다.
 
 자세한 준비 절차는 [infra/macbook-staging/README.md](infra/macbook-staging/README.md)를 참고하세요.
 
