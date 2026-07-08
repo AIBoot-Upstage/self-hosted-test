@@ -1,0 +1,58 @@
+name: Deploy to GCP Cloud Run
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+env:
+  GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  GCP_REGION: ${{ vars.GCP_REGION || 'asia-northeast3' }}
+  ARTIFACT_REPOSITORY: ${{ vars.ARTIFACT_REPOSITORY || 'ai-reviewer' }}
+  CLOUD_RUN_SERVICE: ${{ vars.CLOUD_RUN_SERVICE || 'ai-code-review-agent' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker auth
+        run: gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+
+      - name: Build image
+        run: |
+          IMAGE="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${ARTIFACT_REPOSITORY}/${CLOUD_RUN_SERVICE}:${GITHUB_SHA}"
+          docker build -t "${IMAGE}" .
+          echo "IMAGE=${IMAGE}" >> "${GITHUB_ENV}"
+
+      - name: Push image
+        run: docker push "${IMAGE}"
+
+      - name: Deploy Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.CLOUD_RUN_SERVICE }}
+          region: ${{ env.GCP_REGION }}
+          image: ${{ env.IMAGE }}
+          env_vars: |
+            APP_ENV=prod
+            LLM_MODE=litellm
+            PUBLISH_MODE=github
+            POLICY_ROOT=/app/policies
+          secrets: |
+            AI_REVIEWER_TOKEN=AI_REVIEWER_TOKEN:latest
+            UPSTAGE_API_KEY=UPSTAGE_API_KEY:latest
+
