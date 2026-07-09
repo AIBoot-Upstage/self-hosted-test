@@ -363,22 +363,74 @@ jobs:
             echo "AI_REVIEWER_TOKEN mismatch between GitHub secret and running api container"
             exit 1
           fi
+
+          curl -fsS \
+            -X POST "http://127.0.0.1:${STAGING_PORT}/v1/routing/preview" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${ENV_TOKEN}" \
+            --data '{"syntax_status":"passed","lint_status":"passed","test_status":"passed","changed_files_count":1,"changed_lines":12,"risk_files":[],"policy_available":false}'
           REMOTE
+
+      - name: Staging auth preflight through Tailscale
+        env:
+          AI_REVIEWER_TOKEN: ${{ secrets.AI_REVIEWER_TOKEN }}
+        run: |
+          body_file="$(mktemp)"
+          status="$(
+            curl -sS \
+              -o "${body_file}" \
+              -w "%{http_code}" \
+              -X POST "http://${MACBOOK_HOST}:${STAGING_PORT}/v1/routing/preview" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer ${AI_REVIEWER_TOKEN}" \
+              --data '{"syntax_status":"passed","lint_status":"passed","test_status":"passed","changed_files_count":1,"changed_lines":12,"risk_files":[],"policy_available":false}' \
+              || true
+          )"
+          cat "${body_file}"
+          echo
+          if [ "${status}" -lt 200 ] || [ "${status}" -ge 300 ]; then
+            echo "External auth preflight failed with HTTP ${status}"
+            exit 1
+          fi
 
       - name: Sync staging policies through Tailscale
         env:
           AI_REVIEWER_TOKEN: ${{ secrets.AI_REVIEWER_TOKEN }}
         run: |
-          curl -fsS \
-            -X POST "http://${MACBOOK_HOST}:${STAGING_PORT}/v1/repositories/staging/policies/sync" \
-            -H "Authorization: Bearer ${AI_REVIEWER_TOKEN}"
+          body_file="$(mktemp)"
+          status="$(
+            curl -sS \
+              -o "${body_file}" \
+              -w "%{http_code}" \
+              -X POST "http://${MACBOOK_HOST}:${STAGING_PORT}/v1/repositories/staging/policies/sync" \
+              -H "Authorization: Bearer ${AI_REVIEWER_TOKEN}" \
+              || true
+          )"
+          cat "${body_file}"
+          echo
+          if [ "${status}" -lt 200 ] || [ "${status}" -ge 300 ]; then
+            echo "Policy sync failed with HTTP ${status}"
+            exit 1
+          fi
 
       - name: Staging smoke review through Tailscale
         env:
           AI_REVIEWER_TOKEN: ${{ secrets.AI_REVIEWER_TOKEN }}
         run: |
-          curl -fsS \
-            -X POST "http://${MACBOOK_HOST}:${STAGING_PORT}/v1/reviews" \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${AI_REVIEWER_TOKEN}" \
-            --data @sample-data/review-request.json
+          body_file="$(mktemp)"
+          status="$(
+            curl -sS \
+              -o "${body_file}" \
+              -w "%{http_code}" \
+              -X POST "http://${MACBOOK_HOST}:${STAGING_PORT}/v1/reviews" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer ${AI_REVIEWER_TOKEN}" \
+              --data @sample-data/review-request.json \
+              || true
+          )"
+          cat "${body_file}"
+          echo
+          if [ "${status}" -lt 200 ] || [ "${status}" -ge 300 ]; then
+            echo "Smoke review failed with HTTP ${status}"
+            exit 1
+          fi
