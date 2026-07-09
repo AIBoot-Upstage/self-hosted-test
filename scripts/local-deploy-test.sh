@@ -70,6 +70,22 @@ export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-reviewer}"
 export DATABASE_URL="${DATABASE_URL:-postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}}"
 export GITHUB_WEBHOOK_REVIEW_MODE="${GITHUB_WEBHOOK_REVIEW_MODE:-after_checks}"
 
+if [ "${LLM_MODE}" = "litellm" ] && [ -z "${UPSTAGE_API_KEY:-}" ]; then
+  echo "LLM_MODE=litellm 실행에는 UPSTAGE_API_KEY가 필요합니다."
+  exit 1
+fi
+
+if [ "${PUBLISH_MODE}" = "github_app" ]; then
+  if [ -z "${GITHUB_APP_ID:-}" ]; then
+    echo "PUBLISH_MODE=github_app 실행에는 GITHUB_APP_ID가 필요합니다."
+    exit 1
+  fi
+  if [ -z "${GITHUB_APP_PRIVATE_KEY:-}" ] && [ -z "${GITHUB_APP_PRIVATE_KEY_PATH:-}" ]; then
+    echo "PUBLISH_MODE=github_app 실행에는 GITHUB_APP_PRIVATE_KEY 또는 GITHUB_APP_PRIVATE_KEY_PATH가 필요합니다."
+    exit 1
+  fi
+fi
+
 echo "${AI_REVIEWER_IMAGE} 이미지를 빌드합니다."
 docker build -t "${AI_REVIEWER_IMAGE}" .
 
@@ -96,13 +112,17 @@ curl -fsS \
   -H "Authorization: Bearer ${AI_REVIEWER_TOKEN}" \
   >/dev/null
 
-echo "동기식 리뷰 smoke test를 실행합니다."
-curl -fsS \
-  -X POST "${api_url}/v1/reviews?wait=true" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ${AI_REVIEWER_TOKEN}" \
-  --data @sample-data/review-request.json \
-  >/dev/null
+if [ "${PUBLISH_MODE}" = "github_app" ]; then
+  echo "github_app 게시 모드에서는 sample-data에 installation_id가 없으므로 동기식 리뷰 smoke test를 건너뜁니다."
+else
+  echo "동기식 리뷰 smoke test를 실행합니다."
+  curl -fsS \
+    -X POST "${api_url}/v1/reviews?wait=true" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${AI_REVIEWER_TOKEN}" \
+    --data @sample-data/review-request.json \
+    >/dev/null
+fi
 
 echo "webhook signature smoke test를 실행합니다."
 webhook_payload='{"zen":"local deploy webhook smoke"}'
