@@ -57,6 +57,8 @@ jobs:
             APP_ENV=prod
             LLM_MODE=litellm
             PUBLISH_MODE=github_app
+            UPSTAGE_API_BASE_URL=https://api.upstage.ai/v1
+            SOLAR3_MODEL=solar-pro3
             GITHUB_WEBHOOK_REVIEW_MODE=${{ env.GITHUB_WEBHOOK_REVIEW_MODE }}
             GITHUB_CHECK_RUN_NAME=${{ env.GITHUB_CHECK_RUN_NAME }}
             GITHUB_APP_ID=${{ env.GITHUB_APP_ID }}

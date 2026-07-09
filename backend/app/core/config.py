@@ -15,6 +15,7 @@ class Settings:
     rag_backend: str = "local"
     database_url: str | None = None
     upstage_api_key: str | None = None
+    upstage_api_base_url: str = "https://api.upstage.ai/v1"
     github_token: str | None = None
     github_webhook_secret: str | None = None
     github_app_id: str | None = None
@@ -27,7 +28,7 @@ class Settings:
     local_data_dir: Path = Path(".local-data")
     review_store_path: Path = Path(".local-data/reviews.json")
     comment_output_dir: Path = Path(".local-data/comments")
-    solar3_model: str = "solar3"
+    solar3_model: str = "solar-pro3"
     solar3_low_reasoning_effort: str = "low"
     solar3_medium_reasoning_effort: str = "medium"
     solar3_high_reasoning_effort: str = "high"
@@ -46,6 +47,10 @@ class Settings:
             rag_backend=os.getenv("RAG_BACKEND", "").lower()
             or ("postgres" if os.getenv("DATABASE_URL") else "local"),
             upstage_api_key=os.getenv("UPSTAGE_API_KEY") or None,
+            upstage_api_base_url=os.getenv(
+                "UPSTAGE_API_BASE_URL",
+                "https://api.upstage.ai/v1",
+            ),
             github_token=os.getenv("GITHUB_TOKEN") or None,
             github_webhook_secret=os.getenv("GITHUB_WEBHOOK_SECRET") or None,
             github_app_id=os.getenv("GITHUB_APP_ID") or None,
@@ -69,7 +74,7 @@ class Settings:
             comment_output_dir=Path(
                 os.getenv("COMMENT_OUTPUT_DIR", str(local_data_dir / "comments"))
             ),
-            solar3_model=os.getenv("SOLAR3_MODEL", "solar3"),
+            solar3_model=os.getenv("SOLAR3_MODEL", "solar-pro3"),
             solar3_low_reasoning_effort=os.getenv("SOLAR3_LOW_REASONING_EFFORT", "low"),
             solar3_medium_reasoning_effort=(
                 os.getenv("SOLAR3_MEDIUM_REASONING_EFFORT")

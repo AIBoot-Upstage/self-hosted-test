@@ -123,7 +123,28 @@ def _handle_github_webhook_background(
                     "pull_request_number": review_request.pull_request.number,
                 },
             )
-            _run_review(review_run_id, review_request)
+            try:
+                _run_review(review_run_id, review_request)
+            except Exception as exc:
+                review_events.publish(
+                    review_run_id,
+                    "review_failed",
+                    {
+                        "error_type": type(exc).__name__,
+                        "message": _exception_summary(exc),
+                    },
+                )
+                _complete_failed_github_check(github_client, review_request, exc)
+                logger.exception(
+                    "github webhook review failed",
+                    extra={
+                        "event_name": event_name,
+                        "delivery_id": delivery_id,
+                        "review_run_id": review_run_id,
+                        "repository": review_request.repository.full_name,
+                        "pull_request_number": review_request.pull_request.number,
+                    },
+                )
     except Exception:
         logger.exception(
             "github webhook background task failed",
@@ -158,6 +179,52 @@ def _create_pending_github_check(
         check_run_id=str(check_run.get("id", "")),
     )
     return replace(review_request, github=github_payload)
+
+
+def _complete_failed_github_check(
+    github_client: GitHubAppClient,
+    review_request: ReviewRequest,
+    exc: Exception,
+) -> None:
+    if not review_request.github.installation_id or not review_request.github.check_run_id:
+        return
+    try:
+        token = github_client.installation_token(review_request.github.installation_id)
+        github_client.update_check_run(
+            review_request.repository.owner,
+            review_request.repository.name,
+            review_request.github.check_run_id,
+            token,
+            {
+                "status": "completed",
+                "conclusion": "failure",
+                "completed_at": _utc_now_iso(),
+                "output": {
+                    "title": f"{settings.github_check_run_name} failed",
+                    "summary": (
+                        "AI 코드 리뷰 실행 중 오류가 발생했습니다.\n\n"
+                        f"- Error: `{type(exc).__name__}`\n"
+                        f"- Message: {_exception_summary(exc)}"
+                    ),
+                },
+            },
+        )
+    except Exception:
+        logger.exception(
+            "failed to update github check run after review failure",
+            extra={
+                "repository": review_request.repository.full_name,
+                "pull_request_number": review_request.pull_request.number,
+                "check_run_id": review_request.github.check_run_id,
+            },
+        )
+
+
+def _exception_summary(exc: Exception) -> str:
+    message = str(exc).replace("\n", " ").strip()
+    if not message:
+        return type(exc).__name__
+    return message[:800]
 
 
 def _utc_now_iso() -> str:

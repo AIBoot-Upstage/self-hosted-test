@@ -60,7 +60,7 @@ class OrchestratorTest(unittest.TestCase):
 
             self.assertEqual(result.status, "completed")
             self.assertEqual(result.route.name, "policy_context_review")
-            self.assertEqual(result.model_call.model, "solar3")
+            self.assertEqual(result.model_call.model, "solar-pro3")
             self.assertEqual(result.model_call.reasoning_effort, "medium")
             event_names = [event_name for event_name, _ in events]
             self.assertIn("route_selected", event_names)

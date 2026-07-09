@@ -118,6 +118,28 @@ class GitHubWebhookTest(unittest.TestCase):
         self.assertEqual(request.checks[0].kind, "test")
         self.assertEqual(request.changed_files[0].path, "app/api/items.py")
 
+    def test_check_run_waits_for_check_suite_in_after_checks_mode(self):
+        settings = Settings(github_webhook_review_mode="after_checks")
+        processor = GitHubWebhookProcessor(settings, client=FakeGitHubClient())
+
+        plan = processor.review_plan(
+            "check_run",
+            "delivery-3",
+            {
+                "action": "completed",
+                "repository": _repository_payload(),
+                "installation": {"id": 123},
+                "check_run": {
+                    "name": "test",
+                    "pull_requests": [{"number": 7}],
+                    "app": {"id": 999},
+                },
+            },
+        )
+
+        self.assertEqual(plan.status, "accepted")
+        self.assertFalse(plan.requests)
+
 
 if __name__ == "__main__":
     unittest.main()

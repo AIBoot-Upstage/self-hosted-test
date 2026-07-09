@@ -279,6 +279,15 @@ class GitHubWebhookProcessor:
         delivery_id: str,
         payload: dict[str, Any],
     ) -> GitHubWebhookReviewPlan:
+        if (
+            self.settings.github_webhook_review_mode == "after_checks"
+            and payload_key == "check_run"
+        ):
+            return GitHubWebhookReviewPlan(
+                "accepted",
+                "waiting for check_suite completion",
+                [],
+            )
         if self.settings.github_webhook_review_mode not in {"after_checks", "all"}:
             return GitHubWebhookReviewPlan(
                 "ignored",

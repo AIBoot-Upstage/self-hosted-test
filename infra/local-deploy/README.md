@@ -59,6 +59,8 @@ https://<tunnel-host>/v1/github/webhooks
 LLM_MODE=litellm \
 PUBLISH_MODE=github_app \
 UPSTAGE_API_KEY=... \
+UPSTAGE_API_BASE_URL=https://api.upstage.ai/v1 \
+SOLAR3_MODEL=solar-pro3 \
 GITHUB_WEBHOOK_SECRET=... \
 GITHUB_APP_ID=... \
 GITHUB_APP_PRIVATE_KEY="$(cat path/to/app-private-key.pem)" \

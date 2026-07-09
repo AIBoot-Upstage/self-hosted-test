@@ -172,11 +172,13 @@ class LiteLLMClient:
 
         start = time.perf_counter()
         model = self.settings.model_for_tier(route.model_tier)
+        litellm_model = _litellm_model_id(model, self.settings.upstage_api_base_url)
         reasoning_effort = self.settings.reasoning_effort_for_tier(route.model_tier)
         completion_kwargs: dict[str, Any] = {
-            "model": model,
+            "model": litellm_model,
             "messages": messages,
             "api_key": self.settings.upstage_api_key,
+            "api_base": self.settings.upstage_api_base_url,
             "temperature": 0.1,
         }
         if reasoning_effort:
@@ -205,6 +207,14 @@ class LiteLLMClient:
             reasoning_effort=reasoning_effort,
         )
         return summary, findings, usage
+
+
+def _litellm_model_id(model: str, api_base: str | None) -> str:
+    if "/" in model:
+        return model
+    if api_base:
+        return f"openai/{model}"
+    return model
 
 
 def _parse_json(content: str) -> dict[str, Any]:
