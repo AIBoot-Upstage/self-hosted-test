@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from dataclasses import replace
 from typing import Any
 
 try:
@@ -16,6 +17,7 @@ from backend.app.core.routing import select_route
 from backend.app.core.schemas import PullRequestFeatures, ReviewRequest
 from backend.app.services.events import InMemoryReviewEventBus
 from backend.app.services.github_app import (
+    GitHubAppClient,
     GitHubWebhookError,
     GitHubWebhookProcessor,
     verify_github_signature,
@@ -87,7 +89,12 @@ def _handle_github_webhook_background(
     payload: dict[str, Any],
 ) -> None:
     try:
-        plan = GitHubWebhookProcessor(settings).review_plan(event_name, delivery_id, payload)
+        github_client = GitHubAppClient(settings)
+        plan = GitHubWebhookProcessor(settings, client=github_client).review_plan(
+            event_name,
+            delivery_id,
+            payload,
+        )
         store = create_review_store(settings)
         existing_idempotency_keys = {
             str(record.get("idempotency_key", "")) for record in store.list_reviews()
@@ -103,6 +110,7 @@ def _handle_github_webhook_background(
                     },
                 )
                 continue
+            review_request = _create_pending_github_check(github_client, review_request)
             review_run_id = str(uuid.uuid4())
             review_events.publish(
                 review_run_id,
@@ -113,14 +121,137 @@ def _handle_github_webhook_background(
                     "delivery_id": delivery_id,
                     "repository": review_request.repository.full_name,
                     "pull_request_number": review_request.pull_request.number,
+                    "review_mode": review_request.review_mode,
                 },
             )
-            _run_review(review_run_id, review_request)
+            try:
+                _run_review(review_run_id, review_request)
+            except Exception as exc:
+                review_events.publish(
+                    review_run_id,
+                    "review_failed",
+                    {
+                        "error_type": type(exc).__name__,
+                        "message": _exception_summary(exc),
+                    },
+                )
+                _complete_failed_github_check(github_client, review_request, exc)
+                logger.exception(
+                    "github webhook review failed",
+                    extra={
+                        "event_name": event_name,
+                        "delivery_id": delivery_id,
+                        "review_run_id": review_run_id,
+                        "repository": review_request.repository.full_name,
+                        "pull_request_number": review_request.pull_request.number,
+                    },
+                )
     except Exception:
         logger.exception(
             "github webhook background task failed",
             extra={"event_name": event_name, "delivery_id": delivery_id},
         )
+
+
+def _create_pending_github_check(
+    github_client: GitHubAppClient,
+    review_request: ReviewRequest,
+) -> ReviewRequest:
+    if not review_request.github.installation_id:
+        return review_request
+    token = github_client.installation_token(review_request.github.installation_id)
+    pending_summary = (
+        "사용자 요청으로 심층 리뷰를 실행 중입니다."
+        if review_request.review_mode == "deep_quality_review"
+        else "AI 코드 리뷰를 실행 중입니다."
+    )
+    if review_request.github.check_run_id:
+        github_client.update_check_run(
+            review_request.repository.owner,
+            review_request.repository.name,
+            review_request.github.check_run_id,
+            token,
+            {
+                "status": "in_progress",
+                "started_at": _utc_now_iso(),
+                "output": {
+                    "title": settings.github_check_run_name,
+                    "summary": pending_summary,
+                },
+            },
+        )
+        return review_request
+    check_run = github_client.create_check_run(
+        review_request.repository.owner,
+        review_request.repository.name,
+        token,
+        {
+            "name": settings.github_check_run_name,
+            "head_sha": review_request.pull_request.head_sha,
+            "status": "in_progress",
+            "started_at": _utc_now_iso(),
+            "output": {
+                "title": settings.github_check_run_name,
+                "summary": pending_summary,
+            },
+        },
+    )
+    return replace(
+        review_request,
+        github=replace(review_request.github, check_run_id=str(check_run.get("id", ""))),
+    )
+
+
+def _complete_failed_github_check(
+    github_client: GitHubAppClient,
+    review_request: ReviewRequest,
+    exc: Exception,
+) -> None:
+    if not review_request.github.installation_id or not review_request.github.check_run_id:
+        return
+    try:
+        token = github_client.installation_token(review_request.github.installation_id)
+        github_client.update_check_run(
+            review_request.repository.owner,
+            review_request.repository.name,
+            review_request.github.check_run_id,
+            token,
+            {
+                "status": "completed",
+                "conclusion": "failure",
+                "completed_at": _utc_now_iso(),
+                "output": {
+                    "title": f"{settings.github_check_run_name} failed",
+                    "summary": (
+                        "AI 코드 리뷰 실행 중 오류가 발생했습니다.\n\n"
+                        f"- Error: `{type(exc).__name__}`\n"
+                        f"- Message: {_exception_summary(exc)}"
+                    ),
+                },
+            },
+        )
+    except Exception:
+        logger.exception(
+            "failed to update github check run after review failure",
+            extra={
+                "repository": review_request.repository.full_name,
+                "pull_request_number": review_request.pull_request.number,
+                "check_run_id": review_request.github.check_run_id,
+            },
+        )
+
+
+def _exception_summary(exc: Exception) -> str:
+    message = str(exc).replace("\n", " ").strip()
+    if not message:
+        return type(exc).__name__
+    return message[:800]
+
+
+def _utc_now_iso() -> str:
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 @app.post("/v1/reviews", status_code=status.HTTP_202_ACCEPTED)
@@ -140,6 +271,7 @@ async def create_review(
         {
             "repository": review_request.repository.full_name,
             "pull_request_number": review_request.pull_request.number,
+            "review_mode": review_request.review_mode,
         },
     )
     if wait:
@@ -277,7 +409,7 @@ async def routing_preview(
         policy_available=bool(payload.get("policy_available", False)),
         router_confidence=float(payload.get("router_confidence", 0.8)),
     )
-    route = select_route(features)
+    route = select_route(features, review_mode=str(payload.get("review_mode", "auto")))
     return {
         "route_name": route.name,
         "model_tier": route.model_tier,

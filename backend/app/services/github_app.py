@@ -14,6 +14,8 @@ from typing import Any
 from backend.app.core.config import Settings
 from backend.app.core.schemas import ReviewRequest
 
+DEEP_REVIEW_ACTION_IDENTIFIER = "run_deep_review"
+
 
 class GitHubWebhookError(ValueError):
     pass
@@ -129,6 +131,35 @@ class GitHubAppClient:
         check_runs = payload.get("check_runs", [])
         return check_runs if isinstance(check_runs, list) else []
 
+    def create_check_run(
+        self,
+        owner: str,
+        repo: str,
+        token: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "POST",
+            f"/repos/{_quote(owner)}/{_quote(repo)}/check-runs",
+            token=token,
+            data=payload,
+        )
+
+    def update_check_run(
+        self,
+        owner: str,
+        repo: str,
+        check_run_id: str | int,
+        token: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self.request_json(
+            "PATCH",
+            f"/repos/{_quote(owner)}/{_quote(repo)}/check-runs/{check_run_id}",
+            token=token,
+            data=payload,
+        )
+
     def paginated_get(self, path: str, token: str) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         separator = "&" if "?" in path else "?"
@@ -216,6 +247,8 @@ class GitHubWebhookProcessor:
         if event_name == "check_suite":
             return self._check_payload_plan("check_suite", delivery_id, payload)
         if event_name == "check_run":
+            if payload.get("action") == "requested_action":
+                return self._requested_action_plan(delivery_id, payload)
             return self._check_payload_plan("check_run", delivery_id, payload)
         return GitHubWebhookReviewPlan("ignored", f"unsupported GitHub event: {event_name}", [])
 
@@ -250,6 +283,11 @@ class GitHubWebhookProcessor:
         delivery_id: str,
         payload: dict[str, Any],
     ) -> GitHubWebhookReviewPlan:
+        if (
+            self.settings.github_webhook_review_mode == "after_checks"
+            and payload_key == "check_run"
+        ):
+            return GitHubWebhookReviewPlan("accepted", "waiting for check_suite completion", [])
         if self.settings.github_webhook_review_mode not in {"after_checks", "all"}:
             return GitHubWebhookReviewPlan(
                 "ignored",
@@ -261,6 +299,12 @@ class GitHubWebhookProcessor:
             return GitHubWebhookReviewPlan("accepted", f"waiting for {payload_key} completion", [])
 
         check_payload = _dict(payload.get(payload_key))
+        if self.settings.github_app_id and (
+            _nested_str(check_payload, "app", "id") == str(self.settings.github_app_id)
+        ):
+            return GitHubWebhookReviewPlan("ignored", "self check event", [])
+        if payload_key == "check_run" and check_payload.get("name") == self.settings.github_check_run_name:
+            return GitHubWebhookReviewPlan("ignored", "self check_run event", [])
         pull_requests = check_payload.get("pull_requests") or []
         if not isinstance(pull_requests, list) or not pull_requests:
             return GitHubWebhookReviewPlan("ignored", f"{payload_key} has no pull requests", [])
@@ -287,6 +331,58 @@ class GitHubWebhookProcessor:
             return GitHubWebhookReviewPlan("ignored", f"{payload_key} had no reviewable PR", [])
         return GitHubWebhookReviewPlan("ready", f"{payload_key} completed", requests)
 
+    def _requested_action_plan(
+        self,
+        delivery_id: str,
+        payload: dict[str, Any],
+    ) -> GitHubWebhookReviewPlan:
+        requested_action = _dict(payload.get("requested_action"))
+        identifier = str(requested_action.get("identifier") or "")
+        if identifier != DEEP_REVIEW_ACTION_IDENTIFIER:
+            return GitHubWebhookReviewPlan(
+                "ignored",
+                f"unsupported check_run action: {identifier}",
+                [],
+            )
+
+        check_run = _dict(payload.get("check_run"))
+        if check_run.get("name") != self.settings.github_check_run_name:
+            return GitHubWebhookReviewPlan("ignored", "requested action for another check_run", [])
+
+        pull_requests = check_run.get("pull_requests") or []
+        if not isinstance(pull_requests, list) or not pull_requests:
+            return GitHubWebhookReviewPlan("ignored", "check_run action has no pull requests", [])
+
+        repository = _repository(payload)
+        installation_id = _installation_id(payload)
+        token = self.client.installation_token(installation_id)
+        requests: list[ReviewRequest] = []
+        for pull_request_summary in pull_requests:
+            pull_number = int(_dict(pull_request_summary).get("number", 0))
+            if pull_number <= 0:
+                continue
+            pull_request = self.client.get_pull_request(
+                repository["owner"],
+                repository["name"],
+                pull_number,
+                token,
+            )
+            requests.append(
+                self._build_review_request(
+                    delivery_id,
+                    "check_run.requested_action",
+                    payload,
+                    pull_request,
+                    token,
+                    review_mode="deep_quality_review",
+                    check_run_id=str(check_run.get("id", "")),
+                )
+            )
+
+        if not requests:
+            return GitHubWebhookReviewPlan("ignored", "check_run action had no reviewable PR", [])
+        return GitHubWebhookReviewPlan("ready", "manual deep review requested", requests)
+
     def _build_review_request(
         self,
         delivery_id: str,
@@ -294,6 +390,8 @@ class GitHubWebhookProcessor:
         payload: dict[str, Any],
         pull_request: dict[str, Any],
         token: str | None = None,
+        review_mode: str = "auto",
+        check_run_id: str = "",
     ) -> ReviewRequest:
         repository = _repository(payload)
         installation_id = _installation_id(payload)
@@ -337,7 +435,9 @@ class GitHubWebhookProcessor:
                     "delivery_id": delivery_id,
                     "event_name": event_name,
                     "installation_id": installation_id,
+                    "check_run_id": check_run_id,
                 },
+                "review_mode": review_mode,
             }
         )
 

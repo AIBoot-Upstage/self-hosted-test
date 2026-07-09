@@ -22,6 +22,7 @@ class Settings:
     github_app_private_key_path: Path | None = None
     github_api_base_url: str = "https://api.github.com"
     github_webhook_review_mode: str = "after_checks"
+    github_check_run_name: str = "AI Code Review"
     policy_root: Path = Path("policies")
     local_data_dir: Path = Path(".local-data")
     review_store_path: Path = Path(".local-data/reviews.json")
@@ -63,6 +64,7 @@ class Settings:
                 "GITHUB_WEBHOOK_REVIEW_MODE",
                 "after_checks",
             ).lower(),
+            github_check_run_name=os.getenv("GITHUB_CHECK_RUN_NAME", "AI Code Review"),
             policy_root=Path(os.getenv("POLICY_ROOT", "policies")),
             local_data_dir=local_data_dir,
             review_store_path=Path(
