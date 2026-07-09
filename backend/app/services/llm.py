@@ -180,6 +180,7 @@ class LiteLLMClient:
             "api_key": self.settings.upstage_api_key,
             "api_base": self.settings.upstage_api_base_url,
             "temperature": 0.1,
+            "timeout": 90,
         }
         if reasoning_effort:
             completion_kwargs["reasoning_effort"] = reasoning_effort
