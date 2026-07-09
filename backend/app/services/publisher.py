@@ -19,18 +19,18 @@ def format_review_markdown(result: ReviewResult) -> str:
     lines = [
         "## AI Code Review",
         "",
-        f"- Route: `{result.route.name}`",
-        f"- Review tier: `{result.route.model_tier}`",
-        f"- Model: `{result.model_call.model}`",
-        f"- Reasoning effort: `{result.model_call.reasoning_effort or 'default'}`",
-        f"- Risk: `{result.summary.overall_risk}`",
-        f"- Summary: {result.summary.short_comment}",
+        f"- 라우트: `{result.route.name}`",
+        f"- 리뷰 티어: `{result.route.model_tier}`",
+        f"- 모델: `{result.model_call.model}`",
+        f"- 추론 강도: `{result.model_call.reasoning_effort or 'default'}`",
+        f"- 위험도: `{result.summary.overall_risk}`",
+        f"- 요약: {result.summary.short_comment}",
         "",
-        "### Findings",
+        "### 리뷰 결과",
     ]
     if not result.findings:
         lines.append("")
-        lines.append("No findings were generated.")
+        lines.append("생성된 리뷰 결과가 없습니다.")
     for index, finding in enumerate(result.findings, start=1):
         location = finding.file_path
         if finding.line_start:
@@ -40,11 +40,11 @@ def format_review_markdown(result: ReviewResult) -> str:
                 "",
                 f"{index}. **{finding.severity} / {finding.category}** - `{location}`",
                 f"   - {finding.message}",
-                f"   - Suggestion: {finding.suggestion}",
+                f"   - 개선 제안: {finding.suggestion}",
             ]
         )
         if finding.policy_source:
-            lines.append(f"   - Policy: `{finding.policy_source}`")
+            lines.append(f"   - 참고 정책: `{finding.policy_source}`")
     return "\n".join(lines).strip() + "\n"
 
 
@@ -108,9 +108,9 @@ class GitHubPublisher:
             return {}
         summary = (
             f"{result.summary.short_comment}\n\n"
-            f"- Route: {result.route.name}\n"
-            f"- Review tier: {result.route.model_tier}\n"
-            f"- Findings: {len(result.findings)}"
+            f"- 라우트: {result.route.name}\n"
+            f"- 리뷰 티어: {result.route.model_tier}\n"
+            f"- 리뷰 결과: {len(result.findings)}"
         )
         return self.app_client.update_check_run(
             request.repository.owner,

@@ -57,7 +57,10 @@ def build_review_messages(
     system = (
         "You are an AI code review agent for GitHub Pull Requests. "
         "Return only valid JSON. Every finding must be grounded in diff, check logs, "
-        "or provided repository policy. Do not invent unavailable line numbers."
+        "or provided repository policy. Do not invent unavailable line numbers. "
+        "Write all human-readable review text in Korean. This includes "
+        "summary.short_comment, findings[].message, and findings[].suggestion. "
+        "Keep JSON field names and enum values exactly as requested."
     )
     user = {
         "route": route.to_dict(),
@@ -65,7 +68,7 @@ def build_review_messages(
         "output_schema": {
             "summary": {
                 "overall_risk": "low|medium|high",
-                "short_comment": "brief PR-level review summary",
+                "short_comment": "한국어로 작성한 PR 전체 요약",
             },
             "findings": [
                 {
@@ -74,8 +77,8 @@ def build_review_messages(
                     "file_path": "path/to/file.py",
                     "line_start": 1,
                     "line_end": 1,
-                    "message": "specific issue",
-                    "suggestion": "specific improvement",
+                    "message": "한국어로 작성한 구체적인 문제 설명",
+                    "suggestion": "한국어로 작성한 구체적인 개선 제안",
                     "policy_source": "optional policy source",
                     "confidence": 0.0,
                 }
@@ -86,4 +89,3 @@ def build_review_messages(
         {"role": "system", "content": system},
         {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
     ]
-
