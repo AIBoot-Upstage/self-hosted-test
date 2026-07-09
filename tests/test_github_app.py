@@ -4,6 +4,7 @@ import unittest
 
 from backend.app.core.config import Settings
 from backend.app.services.github_app import (
+    DEEP_REVIEW_ACTION_IDENTIFIER,
     GitHubWebhookError,
     GitHubWebhookProcessor,
     verify_github_signature,
@@ -139,6 +140,39 @@ class GitHubWebhookTest(unittest.TestCase):
 
         self.assertEqual(plan.status, "accepted")
         self.assertFalse(plan.requests)
+
+    def test_check_run_requested_action_builds_manual_deep_review(self):
+        settings = Settings(
+            github_webhook_review_mode="after_checks",
+            github_check_run_name="AI Code Review",
+        )
+        processor = GitHubWebhookProcessor(settings, client=FakeGitHubClient())
+
+        plan = processor.review_plan(
+            "check_run",
+            "delivery-4",
+            {
+                "action": "requested_action",
+                "requested_action": {"identifier": DEEP_REVIEW_ACTION_IDENTIFIER},
+                "repository": _repository_payload(),
+                "installation": {"id": 123},
+                "check_run": {
+                    "id": 456,
+                    "name": "AI Code Review",
+                    "pull_requests": [{"number": 7}],
+                    "app": {"id": 999},
+                },
+            },
+        )
+
+        self.assertEqual(plan.status, "ready")
+        self.assertEqual(plan.reason, "manual deep review requested")
+        self.assertEqual(len(plan.requests), 1)
+        request = plan.requests[0]
+        self.assertEqual(request.review_mode, "deep_quality_review")
+        self.assertEqual(request.github.event_name, "check_run.requested_action")
+        self.assertEqual(request.github.check_run_id, "456")
+        self.assertTrue(request.idempotency_key().endswith(":deep_quality_review"))
 
 
 if __name__ == "__main__":

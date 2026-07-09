@@ -48,7 +48,7 @@ class RoutingTest(unittest.TestCase):
         self.assertEqual(route.model_tier, "solar3-medium")
         self.assertTrue(route.use_rag)
 
-    def test_high_risk_path_routes_to_high_tier(self):
+    def test_high_risk_path_stays_medium_by_default(self):
         request = _request(
             [{"kind": "test", "status": "completed", "conclusion": "success", "summary": ""}],
             changed_files=[
@@ -62,8 +62,22 @@ class RoutingTest(unittest.TestCase):
         )
         route = select_route(extract_features(request, policy_available=True))
 
+        self.assertEqual(route.name, "policy_context_review")
+        self.assertEqual(route.model_tier, "solar3-medium")
+        self.assertIn("deep review can be requested", route.reasons[-1])
+
+    def test_manual_deep_review_routes_to_high_tier(self):
+        request = _request(
+            [{"kind": "test", "status": "completed", "conclusion": "success", "summary": ""}]
+        )
+        route = select_route(
+            extract_features(request, policy_available=True),
+            review_mode="deep_quality_review",
+        )
+
         self.assertEqual(route.name, "deep_quality_review")
         self.assertEqual(route.model_tier, "solar3-high")
+        self.assertEqual(route.reasons, ["manual deep review requested"])
 
 
 if __name__ == "__main__":

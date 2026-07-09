@@ -7,7 +7,7 @@ from typing import Protocol
 
 from backend.app.core.config import Settings
 from backend.app.core.schemas import ReviewRequest, ReviewResult
-from backend.app.services.github_app import GitHubAppClient
+from backend.app.services.github_app import DEEP_REVIEW_ACTION_IDENTIFIER, GitHubAppClient
 
 
 class ReviewPublisher(Protocol):
@@ -15,19 +15,77 @@ class ReviewPublisher(Protocol):
         ...
 
 
+REVIEW_TYPE_LABELS = {
+    "simple_failure_review": "실패 원인 빠른 리뷰",
+    "policy_context_review": "정책 기반 표준 리뷰",
+    "deep_quality_review": "심층 품질 리뷰",
+}
+
+ROUTE_REASON_LABELS = {
+    "syntax, lint, or test failed": "문법, 린트 또는 테스트 실패가 감지됨",
+    "manual deep review requested": "사용자가 심층 리뷰를 직접 요청함",
+    "checks passed or no failing check detected": "실패한 체크가 없음",
+    "repository policy is available": "저장소 정책 컨텍스트 사용 가능",
+    "repository policy is unavailable; falling back to general review": (
+        "저장소 정책이 없어 일반 리뷰로 진행"
+    ),
+    "high-risk signals detected; deep review can be requested": (
+        "고위험 변경 신호 감지, 필요 시 심층 리뷰 선택 가능"
+    ),
+    "large diff detected; deep review can be requested": (
+        "큰 변경 규모 감지, 필요 시 심층 리뷰 선택 가능"
+    ),
+    "many changed files detected; deep review can be requested": (
+        "많은 파일 변경 감지, 필요 시 심층 리뷰 선택 가능"
+    ),
+}
+
+
+def _review_type_label(result: ReviewResult) -> str:
+    return REVIEW_TYPE_LABELS.get(result.route.name, "자동 코드 리뷰")
+
+
+def _review_context_label(result: ReviewResult) -> str:
+    if result.route.use_rag:
+        return "저장소 정책/RAG 참조"
+    return "체크 결과와 변경 diff 기반"
+
+
+def _route_reason_label(reason: str) -> str:
+    return ROUTE_REASON_LABELS.get(reason, reason)
+
+
+def _route_reason_summary(result: ReviewResult) -> str:
+    if not result.route.reasons:
+        return "자동 라우팅 기준"
+    return ", ".join(_route_reason_label(reason) for reason in result.route.reasons)
+
+
+def _supports_manual_deep_review(result: ReviewResult) -> bool:
+    return result.route.name == "policy_context_review"
+
+
 def format_review_markdown(result: ReviewResult) -> str:
     lines = [
         "## AI Code Review",
         "",
-        f"- 라우트: `{result.route.name}`",
-        f"- 리뷰 티어: `{result.route.model_tier}`",
-        f"- 모델: `{result.model_call.model}`",
-        f"- 추론 강도: `{result.model_call.reasoning_effort or 'default'}`",
+        f"- 리뷰 유형: `{_review_type_label(result)}`",
+        f"- 선택 사유: {_route_reason_summary(result)}",
+        f"- 처리 방식: `{_review_context_label(result)}`",
+        f"- 사용 모델: `{result.model_call.model}`",
         f"- 위험도: `{result.summary.overall_risk}`",
         f"- 요약: {result.summary.short_comment}",
         "",
         "### 리뷰 결과",
     ]
+    if _supports_manual_deep_review(result):
+        lines.extend(
+            [
+                "",
+                "> 다른 시각의 심층 리뷰가 필요하면 GitHub Checks 화면의 "
+                "`심층 리뷰 실행` 버튼으로 추가 실행할 수 있습니다.",
+            ]
+        )
     if not result.findings:
         lines.append("")
         lines.append("생성된 리뷰 결과가 없습니다.")
@@ -108,24 +166,33 @@ class GitHubPublisher:
             return {}
         summary = (
             f"{result.summary.short_comment}\n\n"
-            f"- 라우트: {result.route.name}\n"
-            f"- 리뷰 티어: {result.route.model_tier}\n"
+            f"- 리뷰 유형: {_review_type_label(result)}\n"
+            f"- 선택 사유: {_route_reason_summary(result)}\n"
             f"- 리뷰 결과: {len(result.findings)}"
         )
+        payload: dict[str, object] = {
+            "status": "completed",
+            "conclusion": "success",
+            "completed_at": _utc_now_iso(),
+            "output": {
+                "title": "AI Code Review completed",
+                "summary": summary,
+            },
+        }
+        if _supports_manual_deep_review(result):
+            payload["actions"] = [
+                {
+                    "label": "심층 리뷰 실행",
+                    "description": "다른 시각의 심층 리뷰를 실행합니다.",
+                    "identifier": DEEP_REVIEW_ACTION_IDENTIFIER,
+                }
+            ]
         return self.app_client.update_check_run(
             request.repository.owner,
             request.repository.name,
             request.github.check_run_id,
             token,
-            {
-                "status": "completed",
-                "conclusion": "success",
-                "completed_at": _utc_now_iso(),
-                "output": {
-                    "title": "AI Code Review completed",
-                    "summary": summary,
-                },
-            },
+            payload,
         )
 
     def _request_json(

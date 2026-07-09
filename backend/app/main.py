@@ -121,6 +121,7 @@ def _handle_github_webhook_background(
                     "delivery_id": delivery_id,
                     "repository": review_request.repository.full_name,
                     "pull_request_number": review_request.pull_request.number,
+                    "review_mode": review_request.review_mode,
                 },
             )
             try:
@@ -159,6 +160,27 @@ def _create_pending_github_check(
     if not review_request.github.installation_id:
         return review_request
     token = github_client.installation_token(review_request.github.installation_id)
+    pending_summary = (
+        "사용자 요청으로 심층 리뷰를 실행 중입니다."
+        if review_request.review_mode == "deep_quality_review"
+        else "AI 코드 리뷰를 실행 중입니다."
+    )
+    if review_request.github.check_run_id:
+        github_client.update_check_run(
+            review_request.repository.owner,
+            review_request.repository.name,
+            review_request.github.check_run_id,
+            token,
+            {
+                "status": "in_progress",
+                "started_at": _utc_now_iso(),
+                "output": {
+                    "title": settings.github_check_run_name,
+                    "summary": pending_summary,
+                },
+            },
+        )
+        return review_request
     check_run = github_client.create_check_run(
         review_request.repository.owner,
         review_request.repository.name,
@@ -170,7 +192,7 @@ def _create_pending_github_check(
             "started_at": _utc_now_iso(),
             "output": {
                 "title": settings.github_check_run_name,
-                "summary": "AI 코드 리뷰를 실행 중입니다.",
+                "summary": pending_summary,
             },
         },
     )
@@ -250,6 +272,7 @@ async def create_review(
         {
             "repository": review_request.repository.full_name,
             "pull_request_number": review_request.pull_request.number,
+            "review_mode": review_request.review_mode,
         },
     )
     if wait:
@@ -374,7 +397,7 @@ async def routing_preview(
         policy_available=bool(payload.get("policy_available", False)),
         router_confidence=float(payload.get("router_confidence", 0.8)),
     )
-    route = select_route(features)
+    route = select_route(features, review_mode=str(payload.get("review_mode", "auto")))
     return {
         "route_name": route.name,
         "model_tier": route.model_tier,

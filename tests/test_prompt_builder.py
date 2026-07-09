@@ -90,8 +90,12 @@ class PromptBuilderTest(unittest.TestCase):
 
         markdown = format_review_markdown(result)
 
-        self.assertIn("- 라우트:", markdown)
-        self.assertIn("- 리뷰 티어:", markdown)
+        self.assertIn("- 리뷰 유형:", markdown)
+        self.assertIn("- 선택 사유:", markdown)
+        self.assertIn("- 처리 방식:", markdown)
+        self.assertNotIn("리뷰 티어", markdown)
+        self.assertNotIn("추론 강도", markdown)
+        self.assertNotIn("solar3-medium", markdown)
         self.assertIn("### 리뷰 결과", markdown)
         self.assertIn("개선 제안:", markdown)
 

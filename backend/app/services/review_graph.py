@@ -197,7 +197,7 @@ class ReviewWorkflowGraph:
         return {"policy_available": policy_available, "features": features}
 
     def _select_route(self, state: ReviewWorkflowState) -> JsonDict:
-        route = select_route(state["features"])
+        route = select_route(state["features"], review_mode=state["request"].review_mode)
         self._publish("route_selected", route.to_dict())
         return {"route": route}
 
