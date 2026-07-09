@@ -8,6 +8,8 @@ env:
   GCP_REGION: ${{ vars.GCP_REGION || 'asia-northeast3' }}
   ARTIFACT_REPOSITORY: ${{ vars.ARTIFACT_REPOSITORY || 'ai-reviewer' }}
   CLOUD_RUN_SERVICE: ${{ vars.CLOUD_RUN_SERVICE || 'ai-code-review-agent' }}
+  GITHUB_APP_ID: ${{ vars.GITHUB_APP_ID }}
+  GITHUB_WEBHOOK_REVIEW_MODE: ${{ vars.GITHUB_WEBHOOK_REVIEW_MODE || 'after_checks' }}
 
 jobs:
   deploy:
@@ -18,6 +20,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate deployment configuration
+        run: |
+          test -n "${GCP_PROJECT_ID}" || (echo "GCP_PROJECT_ID variable이 필요합니다" && exit 1)
+          test -n "${GITHUB_APP_ID}" || (echo "GITHUB_APP_ID variable이 필요합니다" && exit 1)
 
       - id: auth
         uses: google-github-actions/auth@v2
@@ -48,8 +55,13 @@ jobs:
           env_vars: |
             APP_ENV=prod
             LLM_MODE=litellm
-            PUBLISH_MODE=github
+            PUBLISH_MODE=github_app
+            GITHUB_WEBHOOK_REVIEW_MODE=${{ env.GITHUB_WEBHOOK_REVIEW_MODE }}
+            GITHUB_APP_ID=${{ env.GITHUB_APP_ID }}
+            GITHUB_API_BASE_URL=https://api.github.com
             POLICY_ROOT=/app/policies
           secrets: |
             AI_REVIEWER_TOKEN=AI_REVIEWER_TOKEN:latest
             UPSTAGE_API_KEY=UPSTAGE_API_KEY:latest
+            GITHUB_WEBHOOK_SECRET=GITHUB_WEBHOOK_SECRET:latest
+            GITHUB_APP_PRIVATE_KEY=GITHUB_APP_PRIVATE_KEY:latest

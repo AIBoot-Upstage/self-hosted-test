@@ -122,6 +122,8 @@ class ChangedFilePayload:
 class GitHubPayload:
     run_id: str = ""
     event_name: str = "pull_request"
+    delivery_id: str = ""
+    installation_id: str = ""
 
     @classmethod
     def from_dict(cls, payload: JsonDict | None) -> "GitHubPayload":
@@ -129,6 +131,8 @@ class GitHubPayload:
         return cls(
             run_id=_string(payload.get("run_id")),
             event_name=_string(payload.get("event_name"), "pull_request"),
+            delivery_id=_string(payload.get("delivery_id")),
+            installation_id=_string(payload.get("installation_id")),
         )
 
 
@@ -257,6 +261,18 @@ class ModelCallUsage:
     latency_ms: int = 0
     status: str = "completed"
     reasoning_effort: str | None = None
+
+    def to_dict(self) -> JsonDict:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ReviewEvent:
+    review_run_id: str
+    sequence: int
+    event_type: str
+    payload: JsonDict = field(default_factory=dict)
+    created_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> JsonDict:
         return asdict(self)

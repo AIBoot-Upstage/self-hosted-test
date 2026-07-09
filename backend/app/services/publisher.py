@@ -7,6 +7,7 @@ from typing import Protocol
 
 from backend.app.core.config import Settings
 from backend.app.core.schemas import ReviewRequest, ReviewResult
+from backend.app.services.github_app import GitHubAppClient
 
 
 class ReviewPublisher(Protocol):
@@ -59,10 +60,16 @@ class LocalPublisher:
 
 
 class GitHubPublisher:
-    def __init__(self, token: str) -> None:
+    def __init__(
+        self,
+        token: str | None = None,
+        app_client: GitHubAppClient | None = None,
+    ) -> None:
         self.token = token
+        self.app_client = app_client
 
     def publish(self, request: ReviewRequest, result: ReviewResult) -> dict[str, object]:
+        token = self._token_for(request)
         url = (
             "https://api.github.com/repos/"
             f"{request.repository.owner}/{request.repository.name}/issues/"
@@ -74,7 +81,7 @@ class GitHubPublisher:
             data=payload,
             method="POST",
             headers={
-                "Authorization": f"Bearer {self.token}",
+                "Authorization": f"Bearer {token}",
                 "Accept": "application/vnd.github+json",
                 "X-GitHub-Api-Version": "2022-11-28",
                 "Content-Type": "application/json",
@@ -82,10 +89,22 @@ class GitHubPublisher:
         )
         with urllib.request.urlopen(http_request, timeout=20) as response:
             body = json.loads(response.read().decode("utf-8"))
-        return {"mode": "github", "comment_id": body.get("id"), "html_url": body.get("html_url")}
+        mode = "github_app" if self.app_client and not self.token else "github"
+        return {"mode": mode, "comment_id": body.get("id"), "html_url": body.get("html_url")}
+
+    def _token_for(self, request: ReviewRequest) -> str:
+        if self.token:
+            return self.token
+        if not self.app_client:
+            raise RuntimeError("GitHub publisher requires GITHUB_TOKEN or GitHub App settings")
+        if not request.github.installation_id:
+            raise RuntimeError("GitHub App publish requires github.installation_id")
+        return self.app_client.installation_token(request.github.installation_id)
 
 
 def create_publisher(settings: Settings) -> ReviewPublisher:
+    if settings.publish_mode == "github_app":
+        return GitHubPublisher(app_client=GitHubAppClient(settings))
     if settings.publish_mode == "github" and settings.github_token:
         return GitHubPublisher(settings.github_token)
     return LocalPublisher(settings.comment_output_dir)

@@ -52,12 +52,22 @@ class OrchestratorTest(unittest.TestCase):
                 }
             )
 
-            result = create_orchestrator(settings).run_review(request)
+            events = []
+            result = create_orchestrator(settings).run_review(
+                request,
+                event_publisher=lambda event_type, payload: events.append((event_type, payload)),
+            )
 
             self.assertEqual(result.status, "completed")
             self.assertEqual(result.route.name, "policy_context_review")
             self.assertEqual(result.model_call.model, "solar3")
             self.assertEqual(result.model_call.reasoning_effort, "medium")
+            event_names = [event_name for event_name, _ in events]
+            self.assertIn("route_selected", event_names)
+            self.assertIn("llm_call_completed", event_names)
+            self.assertEqual(event_names[-1], "review_completed")
+            completed_payload = events[-1][1]
+            self.assertIn(completed_payload["workflow_engine"], {"langgraph", "local_fallback"})
             self.assertTrue(result.findings)
             self.assertTrue(settings.review_store_path.exists())
             self.assertTrue(list(settings.comment_output_dir.glob("*.md")))

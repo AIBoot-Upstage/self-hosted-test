@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 
 from backend.app.core.config import Settings
-from backend.app.core.routing import extract_features, select_route
-from backend.app.core.schemas import ReviewRequest, ReviewResult
+from backend.app.core.schemas import JsonDict, ReviewRequest, ReviewResult
 from backend.app.services.llm import LLMClient, create_llm_client
-from backend.app.services.prompt_builder import build_review_messages
 from backend.app.services.publisher import ReviewPublisher, create_publisher
 from backend.app.services.rag import LocalPolicyIndex, create_policy_index
+from backend.app.services.review_graph import ReviewWorkflowGraph
 from backend.app.storage.factory import ReviewStore, create_review_store
 
 
@@ -25,32 +25,38 @@ class ReviewOrchestrator:
         self.publisher = publisher
         self.store = store
 
-    def run_review(self, request: ReviewRequest) -> ReviewResult:
-        policy_available = self.policy_index.has_policy()
-        features = extract_features(request, policy_available=policy_available)
-        route = select_route(features)
-        policies = self.policy_index.search(request) if route.use_rag else []
-        messages = build_review_messages(request, route, policies)
-        summary, findings, usage = self.llm_client.generate_review(
-            request=request,
-            route=route,
-            policies=policies,
-            messages=messages,
-        )
-        result = ReviewResult(
-            review_run_id=str(uuid.uuid4()),
-            status="completed",
-            idempotency_key=request.idempotency_key(),
-            summary=summary,
-            findings=findings,
-            route=route,
-            features=features,
-            model_call=usage,
-            retrieved_policies=policies,
-        )
-        self.store.save_review(result)
-        self.publisher.publish(request, result)
-        return result
+    def run_review(
+        self,
+        request: ReviewRequest,
+        review_run_id: str | None = None,
+        event_publisher: Callable[[str, JsonDict | None], object] | None = None,
+    ) -> ReviewResult:
+        resolved_review_run_id = review_run_id or str(uuid.uuid4())
+
+        def publish(event_type: str, payload: JsonDict | None = None) -> None:
+            if event_publisher:
+                event_publisher(event_type, payload or {})
+
+        try:
+            return ReviewWorkflowGraph(
+                policy_index=self.policy_index,
+                llm_client=self.llm_client,
+                publisher=self.publisher,
+                store=self.store,
+                event_publisher=publish,
+            ).run(
+                request=request,
+                review_run_id=resolved_review_run_id,
+            )
+        except Exception as exc:
+            publish(
+                "review_failed",
+                {
+                    "error_type": exc.__class__.__name__,
+                    "message": str(exc),
+                },
+            )
+            raise
 
 
 def create_orchestrator(settings: Settings | None = None) -> ReviewOrchestrator:

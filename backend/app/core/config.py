@@ -16,6 +16,12 @@ class Settings:
     database_url: str | None = None
     upstage_api_key: str | None = None
     github_token: str | None = None
+    github_webhook_secret: str | None = None
+    github_app_id: str | None = None
+    github_app_private_key: str | None = None
+    github_app_private_key_path: Path | None = None
+    github_api_base_url: str = "https://api.github.com"
+    github_webhook_review_mode: str = "after_checks"
     policy_root: Path = Path("policies")
     local_data_dir: Path = Path(".local-data")
     review_store_path: Path = Path(".local-data/reviews.json")
@@ -40,6 +46,19 @@ class Settings:
             or ("postgres" if os.getenv("DATABASE_URL") else "local"),
             upstage_api_key=os.getenv("UPSTAGE_API_KEY") or None,
             github_token=os.getenv("GITHUB_TOKEN") or None,
+            github_webhook_secret=os.getenv("GITHUB_WEBHOOK_SECRET") or None,
+            github_app_id=os.getenv("GITHUB_APP_ID") or None,
+            github_app_private_key=os.getenv("GITHUB_APP_PRIVATE_KEY") or None,
+            github_app_private_key_path=(
+                Path(os.environ["GITHUB_APP_PRIVATE_KEY_PATH"])
+                if os.getenv("GITHUB_APP_PRIVATE_KEY_PATH")
+                else None
+            ),
+            github_api_base_url=os.getenv("GITHUB_API_BASE_URL", "https://api.github.com"),
+            github_webhook_review_mode=os.getenv(
+                "GITHUB_WEBHOOK_REVIEW_MODE",
+                "after_checks",
+            ).lower(),
             policy_root=Path(os.getenv("POLICY_ROOT", "policies")),
             local_data_dir=local_data_dir,
             review_store_path=Path(
