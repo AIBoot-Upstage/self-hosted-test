@@ -16,8 +16,18 @@ class LocalJsonStore:
         records.append(result.to_dict())
         self.path.write_text(json.dumps(records, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    def list_reviews(self) -> list[dict[str, object]]:
-        return self._read_records()
+    def list_reviews(
+        self,
+        limit: int | None = None,
+        route_name: str | None = None,
+        model_tier: str | None = None,
+    ) -> list[dict[str, object]]:
+        records = list(reversed(self._read_records()))
+        if route_name is not None:
+            records = [r for r in records if r.get("route", {}).get("name") == route_name]
+        if model_tier is not None:
+            records = [r for r in records if r.get("route", {}).get("model_tier") == model_tier]
+        return records[:limit] if limit is not None else records
 
     def get_review(self, review_run_id: str) -> dict[str, object] | None:
         for record in self._read_records():

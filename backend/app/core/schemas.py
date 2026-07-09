@@ -261,6 +261,7 @@ class ModelCallUsage:
     latency_ms: int = 0
     status: str = "completed"
     reasoning_effort: str | None = None
+    cost_usd: float = 0.0
 
     def to_dict(self) -> JsonDict:
         return asdict(self)

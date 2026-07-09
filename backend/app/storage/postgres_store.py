@@ -98,17 +98,36 @@ class PostgresReviewStore:
                     ),
                 )
 
-    def list_reviews(self) -> list[dict[str, object]]:
+    def list_reviews(
+        self,
+        limit: int | None = None,
+        route_name: str | None = None,
+        model_tier: str | None = None,
+    ) -> list[dict[str, object]]:
         self.ensure_schema()
+        conditions: list[str] = []
+        params: list[object] = []
+        if route_name is not None:
+            conditions.append("route_name = %s")
+            params.append(route_name)
+        if model_tier is not None:
+            conditions.append("model_tier = %s")
+            params.append(model_tier)
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        limit_clause = "LIMIT %s" if limit is not None else ""
+        if limit is not None:
+            params.append(limit)
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """
+                    f"""
                     SELECT payload
                     FROM review_runs
+                    {where_clause}
                     ORDER BY created_at DESC
-                    LIMIT 100
-                    """
+                    {limit_clause}
+                    """,
+                    params,
                 )
                 return [row[0] for row in cur.fetchall()]
 

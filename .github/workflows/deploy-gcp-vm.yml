@@ -1,0 +1,99 @@
+name: Deploy to GCP VM
+
+on:
+  workflow_dispatch:
+
+env:
+  GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  GCP_ZONE: ${{ vars.GCP_ZONE || 'asia-northeast3-c' }}
+  GCE_INSTANCE: ${{ vars.GCE_INSTANCE || 'ai-code-review-agent' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate deployment configuration
+        run: |
+          test -n "${GCP_PROJECT_ID}" || (echo "GCP_PROJECT_ID variable이 필요합니다" && exit 1)
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Package deployment archive
+        run: |
+          git archive --format=tar.gz --output="${RUNNER_TEMP}/ai-code-review-agent.tar.gz" HEAD
+
+          cat > "${RUNNER_TEMP}/deploy-ai-code-review-agent.sh" <<'SCRIPT'
+          set -euo pipefail
+
+          DEPLOY_DIR="${HOME}/ai-code-review-agent-deploy"
+          ARCHIVE="${HOME}/ai-code-review-agent.tar.gz"
+          ENV_BACKUP="$(mktemp)"
+          DATA_BACKUP="$(mktemp -d)"
+
+          mkdir -p "${DEPLOY_DIR}"
+          if [ -f "${DEPLOY_DIR}/.env" ]; then
+            cp "${DEPLOY_DIR}/.env" "${ENV_BACKUP}"
+          else
+            rm -f "${ENV_BACKUP}"
+          fi
+          if [ -d "${DEPLOY_DIR}/.local-data" ]; then
+            cp -a "${DEPLOY_DIR}/.local-data/." "${DATA_BACKUP}/"
+          fi
+
+          find "${DEPLOY_DIR}" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          tar -xzf "${ARCHIVE}" -C "${DEPLOY_DIR}"
+
+          if [ -f "${ENV_BACKUP}" ]; then
+            mv "${ENV_BACKUP}" "${DEPLOY_DIR}/.env"
+          fi
+          if [ -n "$(ls -A "${DATA_BACKUP}" 2>/dev/null)" ]; then
+            mkdir -p "${DEPLOY_DIR}/.local-data"
+            cp -a "${DATA_BACKUP}/." "${DEPLOY_DIR}/.local-data/"
+          fi
+          rm -rf "${DATA_BACKUP}" "${ARCHIVE}"
+
+          test -f "${DEPLOY_DIR}/.env" || (
+            echo "VM의 ${DEPLOY_DIR}/.env 파일이 필요합니다. .env.example을 기준으로 먼저 생성하세요."
+            exit 1
+          )
+
+          cd "${DEPLOY_DIR}"
+          docker compose -p ai-code-review-agent up -d --build
+          docker image prune -f
+          SCRIPT
+
+      - name: Upload deployment archive
+        run: |
+          gcloud compute scp --tunnel-through-iap \
+            --zone "${GCP_ZONE}" --project "${GCP_PROJECT_ID}" \
+            "${RUNNER_TEMP}/ai-code-review-agent.tar.gz" \
+            "${RUNNER_TEMP}/deploy-ai-code-review-agent.sh" \
+            "${GCE_INSTANCE}:~/"
+
+      - name: Build and restart stack on VM
+        run: |
+          gcloud compute ssh "${GCE_INSTANCE}" --tunnel-through-iap \
+            --zone "${GCP_ZONE}" --project "${GCP_PROJECT_ID}" \
+            --command "bash ~/deploy-ai-code-review-agent.sh"
+
+      - name: Verify health
+        run: |
+          gcloud compute ssh "${GCE_INSTANCE}" --tunnel-through-iap \
+            --zone "${GCP_ZONE}" --project "${GCP_PROJECT_ID}" \
+            --command "DEPLOY_DIR=~/ai-code-review-agent-deploy; \
+              PORT=\$(awk -F= '\$1 == \"PORT\" {print \$2}' \"\${DEPLOY_DIR}/.env\" | tail -n1); \
+              PORT=\${PORT:-8000}; \
+              PORT=\${PORT%\\\"}; PORT=\${PORT#\\\"}; \
+              curl -fsS \"http://127.0.0.1:\${PORT}/healthz\""

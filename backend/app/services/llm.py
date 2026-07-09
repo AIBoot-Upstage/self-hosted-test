@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from typing import Any, Protocol
 
@@ -22,6 +23,7 @@ class LLMClient(Protocol):
         route: ReviewRoute,
         policies: list[PolicyChunk],
         messages: list[dict[str, str]],
+        review_run_id: str | None = None,
     ) -> tuple[ReviewSummary, list[ReviewFinding], ModelCallUsage]:
         ...
 
@@ -50,6 +52,7 @@ class MockLLMClient:
         route: ReviewRoute,
         policies: list[PolicyChunk],
         messages: list[dict[str, str]],
+        review_run_id: str | None = None,
     ) -> tuple[ReviewSummary, list[ReviewFinding], ModelCallUsage]:
         start = time.perf_counter()
         findings: list[ReviewFinding] = []
@@ -127,7 +130,7 @@ class MockLLMClient:
                         line_start=line,
                         line_end=line,
                         message="No repository policy was available, so only a general review was generated.",
-                        suggestion="Add policies under policies/ or .ai-reviewer/policies/ for stronger review context.",
+                        suggestion="Add policies under POLICY_ROOT (default policies/) for stronger review context.",
                         confidence=0.62,
                     )
                 )
@@ -157,6 +160,25 @@ class MockLLMClient:
 class LiteLLMClient:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        self._langfuse_ready = False
+
+    def _ensure_langfuse_callback(self) -> None:
+        if (
+            self._langfuse_ready
+            or not self.settings.langfuse_public_key
+            or not self.settings.langfuse_secret_key
+        ):
+            return
+        import litellm
+
+        os.environ["LANGFUSE_PUBLIC_KEY"] = self.settings.langfuse_public_key
+        os.environ["LANGFUSE_SECRET_KEY"] = self.settings.langfuse_secret_key
+        os.environ["LANGFUSE_HOST"] = self.settings.langfuse_host
+        if "langfuse" not in litellm.success_callback:
+            litellm.success_callback.append("langfuse")
+        if "langfuse" not in litellm.failure_callback:
+            litellm.failure_callback.append("langfuse")
+        self._langfuse_ready = True
 
     def generate_review(
         self,
@@ -164,23 +186,37 @@ class LiteLLMClient:
         route: ReviewRoute,
         policies: list[PolicyChunk],
         messages: list[dict[str, str]],
+        review_run_id: str | None = None,
     ) -> tuple[ReviewSummary, list[ReviewFinding], ModelCallUsage]:
         try:
             from litellm import completion
         except ModuleNotFoundError as exc:
             raise RuntimeError("litellm is not installed. Run `pip install -e .`.") from exc
 
+        self._ensure_langfuse_callback()
+
         start = time.perf_counter()
         model = self.settings.model_for_tier(route.model_tier)
+        litellm_model = _litellm_model_id(model, self.settings.upstage_api_base_url)
         reasoning_effort = self.settings.reasoning_effort_for_tier(route.model_tier)
         completion_kwargs: dict[str, Any] = {
-            "model": model,
+            "model": litellm_model,
             "messages": messages,
             "api_key": self.settings.upstage_api_key,
+            "api_base": self.settings.upstage_api_base_url,
             "temperature": 0.1,
+            "timeout": 90,
+            "metadata": {
+                "review_run_id": review_run_id,
+                "route_name": route.name,
+                "model_tier": route.model_tier,
+                "repository": request.repository.full_name,
+                "pull_request_number": request.pull_request.number,
+            },
         }
         if reasoning_effort:
             completion_kwargs["reasoning_effort"] = reasoning_effort
+            completion_kwargs["allowed_openai_params"] = ["reasoning_effort"]
         response = completion(**completion_kwargs)
         latency_ms = int((time.perf_counter() - start) * 1000)
         content = response.choices[0].message.content
@@ -205,6 +241,14 @@ class LiteLLMClient:
             reasoning_effort=reasoning_effort,
         )
         return summary, findings, usage
+
+
+def _litellm_model_id(model: str, api_base: str | None) -> str:
+    if "/" in model:
+        return model
+    if api_base:
+        return f"openai/{model}"
+    return model
 
 
 def _parse_json(content: str) -> dict[str, Any]:

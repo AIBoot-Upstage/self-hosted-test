@@ -234,6 +234,19 @@ async def stream_review_events(
     )
 
 
+@app.get("/v1/reviews")
+def list_reviews(
+    authorization: str | None = Header(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    route_name: str | None = Query(default=None),
+    model_tier: str | None = Query(default=None),
+) -> dict[str, Any]:
+    _authorize(authorization)
+    store = create_review_store(settings)
+    records = store.list_reviews(limit=limit, route_name=route_name, model_tier=model_tier)
+    return {"count": len(records), "reviews": records}
+
+
 @app.get("/v1/reviews/{review_run_id}")
 def get_review(
     review_run_id: str,

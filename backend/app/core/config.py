@@ -26,10 +26,14 @@ class Settings:
     local_data_dir: Path = Path(".local-data")
     review_store_path: Path = Path(".local-data/reviews.json")
     comment_output_dir: Path = Path(".local-data/comments")
-    solar3_model: str = "solar3"
+    upstage_api_base_url: str = "https://api.upstage.ai/v1"
+    solar3_model: str = "solar-pro3"
     solar3_low_reasoning_effort: str = "low"
     solar3_medium_reasoning_effort: str = "medium"
     solar3_high_reasoning_effort: str = "high"
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+    langfuse_host: str = "https://cloud.langfuse.com"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -67,7 +71,8 @@ class Settings:
             comment_output_dir=Path(
                 os.getenv("COMMENT_OUTPUT_DIR", str(local_data_dir / "comments"))
             ),
-            solar3_model=os.getenv("SOLAR3_MODEL", "solar3"),
+            upstage_api_base_url=os.getenv("UPSTAGE_API_BASE_URL", "https://api.upstage.ai/v1"),
+            solar3_model=os.getenv("SOLAR3_MODEL", "solar-pro3"),
             solar3_low_reasoning_effort=os.getenv("SOLAR3_LOW_REASONING_EFFORT", "low"),
             solar3_medium_reasoning_effort=(
                 os.getenv("SOLAR3_MEDIUM_REASONING_EFFORT")
@@ -75,6 +80,9 @@ class Settings:
                 or "medium"
             ),
             solar3_high_reasoning_effort=os.getenv("SOLAR3_HIGH_REASONING_EFFORT", "high"),
+            langfuse_public_key=os.getenv("LANGFUSE_PUBLIC_KEY") or None,
+            langfuse_secret_key=os.getenv("LANGFUSE_SECRET_KEY") or None,
+            langfuse_host=os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com"),
         )
 
     def model_for_tier(self, model_tier: str) -> str:

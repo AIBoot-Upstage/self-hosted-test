@@ -15,7 +15,12 @@ class ReviewStore(Protocol):
     def get_review(self, review_run_id: str) -> dict[str, object] | None:
         ...
 
-    def list_reviews(self) -> list[dict[str, object]]:
+    def list_reviews(
+        self,
+        limit: int | None = None,
+        route_name: str | None = None,
+        model_tier: str | None = None,
+    ) -> list[dict[str, object]]:
         ...
 
     def healthcheck(self) -> None:

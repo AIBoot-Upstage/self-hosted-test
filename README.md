@@ -54,6 +54,17 @@ curl -X POST "http://localhost:8080/v1/reviews?wait=true" \
   --data @sample-data/review-request.json
 ```
 
+리뷰 이력은 목록으로 조회할 수 있습니다(`limit`, `route_name`, `model_tier`로 필터링
+가능, 기본 `limit=100`).
+
+```bash
+curl "http://localhost:8080/v1/reviews?limit=20" \
+  -H "Authorization: Bearer change-me"
+```
+
+토큰/비용/latency/verdict별 통계 조회는 Langfuse Cloud 대시보드([Model Modes](#model-modes)
+참고)에서 확인합니다.
+
 ## Model Modes
 
 Docker/배포 기본값은 LiteLLM을 통해 Solar3 모델을 호출하는 모드입니다.
@@ -91,6 +102,19 @@ GITHUB_WEBHOOK_SECRET=...
 GITHUB_WEBHOOK_REVIEW_MODE=after_checks
 GITHUB_APP_ID=...
 GITHUB_APP_PRIVATE_KEY=...
+```
+
+### Langfuse
+
+`LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY`를 설정하면 `LLM_MODE=litellm`에서 실행되는
+모든 LiteLLM 호출(모델, 토큰, `cost_usd`, latency, `review_run_id`/route/verdict
+metadata)이 Langfuse Cloud에 자동 기록됩니다. 키를 비워두면 Langfuse 연동은
+비활성화되고 기존 동작과 동일합니다.
+
+```text
+LANGFUSE_PUBLIC_KEY=...
+LANGFUSE_SECRET_KEY=...
+LANGFUSE_HOST=https://cloud.langfuse.com
 ```
 
 ## Routing Rules
@@ -142,7 +166,7 @@ policies/sample-review-policy.md
 organization에 GitHub App을 설치하고 webhook URL을 다음으로 설정합니다.
 
 ```text
-https://<cloud-run-url>/v1/github/webhooks
+https://<vm-static-ip-or-domain>/v1/github/webhooks
 ```
 
 권장 GitHub App 권한:
@@ -175,7 +199,7 @@ fallback으로 사용할 수 있습니다.
 Actions fallback에 필요한 secrets:
 
 ```text
-AI_REVIEWER_API_URL=https://<cloud-run-url>
+AI_REVIEWER_API_URL=https://<vm-static-ip-or-domain>
 AI_REVIEWER_TOKEN=<server-token>
 ```
 
@@ -230,15 +254,19 @@ docker compose -f infra/local-deploy/docker-compose.yml -p ai-code-review-agent-
 
 ## GCP Deployment Direction
 
-이 저장소는 Cloud Run 배포를 기준으로 구성되어 있습니다.
+이 저장소는 GCE VM self-host 배포를 기준으로 구성되어 있습니다. 루트의
+`docker-compose.yml`이 `api + postgres(pgvector)`를 한 세트로 실행하므로, 별도의
+managed 데이터베이스 없이 VM 한 대에 그대로 배포합니다.
 
-1. `Dockerfile`로 API image를 빌드합니다.
-2. GitHub Actions CI에서 ruff와 test를 실행합니다.
-3. 수동 CD workflow가 Artifact Registry에 image를 push합니다.
-4. Cloud Run 서비스로 배포합니다.
+1. GitHub Actions CI에서 ruff와 test를 실행합니다.
+2. 수동 CD workflow가 IAP 터널로 VM에 접속해 저장소를 동기화합니다.
+3. VM에서 `docker compose up -d --build`로 `api + postgres` stack을 재시작합니다.
+4. VM 앞단 리버스 프록시(80/443, TLS)가 내부 `api` 컨테이너(8000)로 트래픽을 전달합니다.
 
-배포 workflow는 `.github/workflows/deploy-gcp-cloud-run.yml`에 있습니다. GCP 배포는
-로컬 배포 테스트를 통과한 뒤 수동 실행하도록 구성되어 있습니다.
+배포 workflow는 `.github/workflows/deploy-gcp-vm.yml`에 있습니다. GCP 배포는 로컬 배포
+테스트를 통과한 뒤 수동 실행하도록 구성되어 있습니다. VM의
+`~/ai-code-review-agent-deploy/.env`에는 GitHub App, Upstage, DB, Langfuse 값을 먼저
+채워둬야 합니다. 자세한 VM/방화벽/고정 IP 구성은 `infra/gcp/README.md`를 참고하세요.
 
 ## Project Layout
 

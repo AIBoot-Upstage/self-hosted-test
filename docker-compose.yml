@@ -5,7 +5,7 @@ services:
       - .env
     environment:
       APP_ENV: ${APP_ENV:-local}
-      PORT: ${PORT:-8080}
+      PORT: ${PORT:-8000}
       LLM_MODE: ${LLM_MODE:-litellm}
       PUBLISH_MODE: ${PUBLISH_MODE:-local}
       STORAGE_BACKEND: ${STORAGE_BACKEND:-postgres}
@@ -13,17 +13,21 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://reviewer:reviewer@postgres:5432/reviewer}
       AI_REVIEWER_TOKEN: ${AI_REVIEWER_TOKEN:-}
       UPSTAGE_API_KEY: ${UPSTAGE_API_KEY:-}
+      UPSTAGE_API_BASE_URL: ${UPSTAGE_API_BASE_URL:-https://api.upstage.ai/v1}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-      SOLAR3_MODEL: ${SOLAR3_MODEL:-solar3}
+      SOLAR3_MODEL: ${SOLAR3_MODEL:-solar-pro3}
       SOLAR3_LOW_REASONING_EFFORT: ${SOLAR3_LOW_REASONING_EFFORT:-low}
       SOLAR3_MEDIUM_REASONING_EFFORT: ${SOLAR3_MEDIUM_REASONING_EFFORT:-medium}
       SOLAR3_HIGH_REASONING_EFFORT: ${SOLAR3_HIGH_REASONING_EFFORT:-high}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-https://cloud.langfuse.com}
       POLICY_ROOT: /app/policies
       LOCAL_DATA_DIR: /app/.local-data
       REVIEW_STORE_PATH: /app/.local-data/reviews.json
       COMMENT_OUTPUT_DIR: /app/.local-data/comments
     ports:
-      - "${PORT:-8080}:${PORT:-8080}"
+      - "${PORT:-8000}:${PORT:-8000}"
     volumes:
       - ./.local-data:/app/.local-data
       - ./policies:/app/policies:ro
