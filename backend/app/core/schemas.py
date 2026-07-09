@@ -124,6 +124,7 @@ class GitHubPayload:
     event_name: str = "pull_request"
     delivery_id: str = ""
     installation_id: str = ""
+    check_run_id: str = ""
 
     @classmethod
     def from_dict(cls, payload: JsonDict | None) -> "GitHubPayload":
@@ -133,6 +134,7 @@ class GitHubPayload:
             event_name=_string(payload.get("event_name"), "pull_request"),
             delivery_id=_string(payload.get("delivery_id")),
             installation_id=_string(payload.get("installation_id")),
+            check_run_id=_string(payload.get("check_run_id")),
         )
 
 
@@ -143,6 +145,7 @@ class ReviewRequest:
     checks: list[CheckResultPayload] = field(default_factory=list)
     changed_files: list[ChangedFilePayload] = field(default_factory=list)
     github: GitHubPayload = field(default_factory=GitHubPayload)
+    review_mode: str = "auto"
 
     @classmethod
     def from_dict(cls, payload: JsonDict) -> "ReviewRequest":
@@ -154,15 +157,19 @@ class ReviewRequest:
                 ChangedFilePayload.from_dict(item) for item in payload.get("changed_files", [])
             ],
             github=GitHubPayload.from_dict(payload.get("github")),
+            review_mode=_string(payload.get("review_mode"), "auto"),
         )
 
     def idempotency_key(self) -> str:
-        return (
+        key = (
             f"{self.repository.provider}:"
             f"{self.repository.full_name}:"
             f"{self.pull_request.number}:"
             f"{self.pull_request.head_sha}"
         )
+        if self.review_mode != "auto":
+            key = f"{key}:{self.review_mode}"
+        return key
 
     def to_dict(self) -> JsonDict:
         return asdict(self)

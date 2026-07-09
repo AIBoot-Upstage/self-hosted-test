@@ -49,6 +49,21 @@ def _risk_files(request: ReviewRequest) -> list[str]:
     return sorted(set(risk_files))
 
 
+def _quality_review_reasons(features: PullRequestFeatures) -> list[str]:
+    reasons = ["checks passed or no failing check detected"]
+    if features.policy_available:
+        reasons.append("repository policy is available")
+    else:
+        reasons.append("repository policy is unavailable; falling back to general review")
+    if features.has_high_risk_files:
+        reasons.append("high-risk signals detected; deep review can be requested")
+    if features.changed_lines > 600:
+        reasons.append("large diff detected; deep review can be requested")
+    if features.changed_files_count > 20:
+        reasons.append("many changed files detected; deep review can be requested")
+    return reasons
+
+
 def extract_features(request: ReviewRequest, policy_available: bool) -> PullRequestFeatures:
     syntax_status = _status_for(request.checks, "syntax")
     lint_status = _status_for(request.checks, "lint")
@@ -80,7 +95,7 @@ def extract_features(request: ReviewRequest, policy_available: bool) -> PullRequ
     )
 
 
-def select_route(features: PullRequestFeatures) -> ReviewRoute:
+def select_route(features: PullRequestFeatures, review_mode: str = "auto") -> ReviewRoute:
     if features.syntax_failed or features.lint_failed or features.test_failed:
         return ReviewRoute(
             name="simple_failure_review",
@@ -91,41 +106,21 @@ def select_route(features: PullRequestFeatures) -> ReviewRoute:
             confidence=0.95,
         )
 
-    if (
-        features.has_high_risk_files
-        or features.changed_lines > 600
-        or features.changed_files_count > 20
-        or features.router_confidence < 0.65
-    ):
-        reasons: list[str] = []
-        if features.has_high_risk_files:
-            reasons.append("high-risk file path or patch detected")
-        if features.changed_lines > 600:
-            reasons.append("large diff over 600 changed lines")
-        if features.changed_files_count > 20:
-            reasons.append("many changed files")
-        if features.router_confidence < 0.65:
-            reasons.append("low routing confidence")
+    if review_mode == "deep_quality_review":
         return ReviewRoute(
             name="deep_quality_review",
             model_tier="solar3-high",
             use_rag=features.policy_available,
             focus=["architecture", "security", "performance", "maintainability"],
-            reasons=reasons,
+            reasons=["manual deep review requested"],
             confidence=max(0.7, features.router_confidence),
         )
 
-    reasons = ["checks passed or no failing check detected"]
-    if features.policy_available:
-        reasons.append("repository policy is available")
-    else:
-        reasons.append("repository policy is unavailable; falling back to general review")
     return ReviewRoute(
         name="policy_context_review",
         model_tier="solar3-medium",
         use_rag=features.policy_available,
         focus=["repo_policy", "style", "tests", "api_contract"],
-        reasons=reasons,
+        reasons=_quality_review_reasons(features),
         confidence=features.router_confidence,
     )
-
