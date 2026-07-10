@@ -16,10 +16,15 @@ Required GCP resources:
    설치됨)
 2. 정적 외부 IP (`gcloud compute addresses create`로 예약 후 VM에 연결) — GitHub App
    webhook과 CI/CD가 참조할 안정적인 주소가 필요하다.
-3. 방화벽 규칙: `80`, `443`만 외부 공개, `8000`(app 컨테이너)은 내부 전용, `22`는 IAP
+3. 방화벽 규칙: `80`, `443`만 외부 공개, `8080`(app 컨테이너)은 내부 전용, `22`는 IAP
    대역(`35.235.240.0/20`)으로만 허용
-4. VM 위에서 80/443을 받아 내부 8000으로 넘기는 리버스 프록시 + TLS 종료
-   (Caddy 권장 — 자동 Let's Encrypt 인증서 발급)
+4. VM 위에서 80/443을 받아 내부 8080으로 넘기는 리버스 프록시 + TLS 종료. 루트
+   `docker-compose.yml`의 `caddy` 서비스가 이 역할을 한다 (자동 Let's Encrypt 인증서 발급).
+   `Caddyfile`이 참조하는 `DOMAIN` 환경변수를 VM의 `.env`에 설정해야 한다 — 실제 도메인이
+   없다면 정적 IP를 가리키는 `sslip.io` 같은 무료 서비스로 대체 가능
+   (예: 정적 IP `34.64.123.45` → `34-64-123-45.sslip.io`). Let's Encrypt는 IP 주소가
+   아닌 도메인 이름 앞으로만 인증서를 발급하므로, `DOMAIN`이 실제로 정적 IP를 가리키게
+   DNS(A 레코드 또는 sslip.io 규칙)가 맞춰져 있어야 한다.
 5. Secret Manager 또는 VM의 `.env` 파일로 관리되는 `AI_REVIEWER_TOKEN`,
    `UPSTAGE_API_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_PRIVATE_KEY`,
    `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`
@@ -49,7 +54,8 @@ GCP_SERVICE_ACCOUNT=github-deployer@<project-id>.iam.gserviceaccount.com
 GitHub App setup:
 
 1. Register a GitHub App owned by the target organization or user.
-2. Set webhook URL to `https://<static-ip-or-domain>/v1/github/webhooks`.
+2. Set webhook URL to `https://<DOMAIN>/v1/github/webhooks` (the same `DOMAIN` value
+   configured for Caddy — a bare IP will not have a valid HTTPS cert).
 3. Generate a high-entropy webhook secret and save it as `GITHUB_WEBHOOK_SECRET`.
 4. Generate a private key and save the PEM content as `GITHUB_APP_PRIVATE_KEY`.
 5. Configure repository permissions:

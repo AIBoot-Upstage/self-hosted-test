@@ -5,7 +5,7 @@ services:
       - .env
     environment:
       APP_ENV: ${APP_ENV:-local}
-      PORT: ${PORT:-8000}
+      PORT: ${PORT:-8080}
       LLM_MODE: ${LLM_MODE:-litellm}
       PUBLISH_MODE: ${PUBLISH_MODE:-local}
       STORAGE_BACKEND: ${STORAGE_BACKEND:-postgres}
@@ -27,12 +27,29 @@ services:
       REVIEW_STORE_PATH: /app/.local-data/reviews.json
       COMMENT_OUTPUT_DIR: /app/.local-data/comments
     ports:
-      - "${PORT:-8000}:${PORT:-8000}"
+      - "127.0.0.1:${PORT:-8080}:${PORT:-8080}"
     volumes:
       - ./.local-data:/app/.local-data
       - ./policies:/app/policies:ro
     depends_on:
       - postgres
+
+  caddy:
+    image: caddy:2
+    env_file:
+      - .env
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env, e.g. a real domain or <ip-with-dashes>.sslip.io}
+      APP_PORT: ${PORT:-8080}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
 
   postgres:
     image: pgvector/pgvector:pg16
@@ -52,3 +69,5 @@ services:
 
 volumes:
   postgres-data:
+  caddy-data:
+  caddy-config:

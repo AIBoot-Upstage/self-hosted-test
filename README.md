@@ -255,13 +255,15 @@ docker compose -f infra/local-deploy/docker-compose.yml -p ai-code-review-agent-
 ## GCP Deployment Direction
 
 이 저장소는 GCE VM self-host 배포를 기준으로 구성되어 있습니다. 루트의
-`docker-compose.yml`이 `api + postgres(pgvector)`를 한 세트로 실행하므로, 별도의
-managed 데이터베이스 없이 VM 한 대에 그대로 배포합니다.
+`docker-compose.yml`이 `api + caddy + postgres(pgvector)`를 한 세트로 실행하므로, 별도의
+managed 데이터베이스나 별도 프록시 설치 없이 VM 한 대에 그대로 배포합니다.
 
 1. GitHub Actions CI에서 ruff와 test를 실행합니다.
 2. 수동 CD workflow가 IAP 터널로 VM에 접속해 저장소를 동기화합니다.
-3. VM에서 `docker compose up -d --build`로 `api + postgres` stack을 재시작합니다.
-4. VM 앞단 리버스 프록시(80/443, TLS)가 내부 `api` 컨테이너(8000)로 트래픽을 전달합니다.
+3. VM에서 `docker compose up -d --build`로 `api + caddy + postgres` stack을 재시작합니다.
+4. `caddy` 서비스가 80/443을 받아 TLS를 종료하고 내부 `api` 컨테이너(8080)로 트래픽을
+   전달합니다. `Caddyfile`이 참조하는 `DOMAIN`을 `.env`에 설정해야 자동 HTTPS가 동작합니다
+   (도메인이 없다면 `sslip.io` 등으로 대체 가능 — 자세한 내용은 `infra/gcp/README.md` 참고).
 
 배포 workflow는 `.github/workflows/deploy-gcp-vm.yml`에 있습니다. GCP 배포는 로컬 배포
 테스트를 통과한 뒤 수동 실행하도록 구성되어 있습니다. VM의

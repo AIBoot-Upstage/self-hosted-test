@@ -94,6 +94,6 @@ jobs:
             --zone "${GCP_ZONE}" --project "${GCP_PROJECT_ID}" \
             --command "DEPLOY_DIR=~/ai-code-review-agent-deploy; \
               PORT=\$(awk -F= '\$1 == \"PORT\" {print \$2}' \"\${DEPLOY_DIR}/.env\" | tail -n1); \
-              PORT=\${PORT:-8000}; \
+              PORT=\${PORT:-8080}; \
               PORT=\${PORT%\\\"}; PORT=\${PORT#\\\"}; \
               curl -fsS \"http://127.0.0.1:\${PORT}/healthz\""
