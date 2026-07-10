@@ -271,6 +271,8 @@ managed 데이터베이스 없이 VM 한 대에 그대로 배포합니다.
 3. WIF로 GCP 인증 후 IAP 터널로 VM에 image tar와 runtime 파일을 업로드합니다.
 4. VM에서 `docker load` 후 `docker compose up -d --no-build`로 stack을 재시작합니다.
 5. `caddy`가 80/443에서 TLS를 종료하고 내부 `api` 컨테이너의 `PORT`로 트래픽을 전달합니다.
+   `Caddyfile`이 참조하는 `DOMAIN`을 VM `.env`에 설정해야 자동 HTTPS가 동작합니다
+   (도메인이 없다면 `sslip.io` 등으로 대체 가능, 자세한 내용은 `infra/gcp/README.md` 참고).
 
 배포 workflow는 `.github/workflows/deploy-gcp-vm.yml`에 있습니다. VM의
 `~/ai-code-review-agent-deploy/.env`에는 GitHub App, Upstage, DB, Langfuse 값을 먼저
