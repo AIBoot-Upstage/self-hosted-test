@@ -121,6 +121,7 @@ class PublisherTest(unittest.TestCase):
 
         self.assertEqual(app_client.payload["status"], "completed")
         self.assertEqual(app_client.payload["conclusion"], "success")
+        self.assertEqual(app_client.payload["output"]["title"], "AI Code Review 완료")
         self.assertEqual(app_client.payload["actions"][0]["label"], "심층 리뷰 실행")
         self.assertEqual(app_client.payload["actions"][0]["identifier"], "run_deep_review")
 

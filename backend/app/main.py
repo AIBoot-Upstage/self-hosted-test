@@ -221,11 +221,11 @@ def _complete_failed_github_check(
                 "conclusion": "failure",
                 "completed_at": _utc_now_iso(),
                 "output": {
-                    "title": f"{settings.github_check_run_name} failed",
+                    "title": f"{settings.github_check_run_name} 실패",
                     "summary": (
                         "AI 코드 리뷰 실행 중 오류가 발생했습니다.\n\n"
-                        f"- Error: `{type(exc).__name__}`\n"
-                        f"- Message: {_exception_summary(exc)}"
+                        f"- 오류 유형: `{type(exc).__name__}`\n"
+                        f"- 오류 내용: {_exception_summary(exc)}"
                     ),
                 },
             },

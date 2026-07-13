@@ -309,7 +309,7 @@ class GitHubPublisher:
             "conclusion": "success",
             "completed_at": _utc_now_iso(),
             "output": {
-                "title": "AI Code Review completed",
+                "title": "AI Code Review 완료",
                 "summary": summary,
             },
         }

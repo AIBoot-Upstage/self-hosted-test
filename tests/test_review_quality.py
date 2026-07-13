@@ -61,8 +61,8 @@ class ReviewQualityTest(unittest.TestCase):
             "file_path": "app/service.py",
             "line_start": 10,
             "line_end": 10,
-            "message": "Token is logged.",
-            "suggestion": "Remove the token from the log call.",
+            "message": "토큰이 로그에 기록됩니다.",
+            "suggestion": "로그 호출에서 토큰을 제거하세요.",
             "policy_source": "security.md",
             "confidence": 1.2,
         }
@@ -118,7 +118,7 @@ class ReviewQualityTest(unittest.TestCase):
             [
                 self._finding(knowledge_card_id="secret-log-flow"),
                 self._finding(
-                    message="Second issue.",
+                    message="두 번째 문제입니다.",
                     knowledge_card_id="invented-card",
                 ),
             ],
@@ -126,10 +126,10 @@ class ReviewQualityTest(unittest.TestCase):
         )
 
         findings_by_message = {finding.message: finding for finding in findings}
-        capped = findings_by_message["Token is logged."]
+        capped = findings_by_message["토큰이 로그에 기록됩니다."]
         self.assertEqual(capped.severity, "medium")
         self.assertEqual(capped.knowledge_card_id, "secret-log-flow")
-        self.assertNotIn("Second issue.", findings_by_message)
+        self.assertNotIn("두 번째 문제입니다.", findings_by_message)
         self.assertEqual(report["severity_capped_by_card"], 1)
         self.assertEqual(report["invalid_knowledge_card_dropped"], 1)
         self.assertEqual(report["invalid_knowledge_card_ids"], ["invented-card"])
@@ -145,6 +145,22 @@ class ReviewQualityTest(unittest.TestCase):
 
         self.assertEqual(findings, [])
         self.assertEqual(report["missing_knowledge_card_dropped"], 1)
+
+    def test_drops_english_finding_before_publishing(self):
+        findings, report = validate_and_rank_findings(
+            self.request,
+            self.route,
+            self.policies,
+            [
+                self._finding(
+                    message="Token is logged.",
+                    suggestion="Remove the token from the log call.",
+                )
+            ],
+        )
+
+        self.assertEqual(findings, [])
+        self.assertEqual(report["non_korean_finding_dropped"], 1)
 
 
 if __name__ == "__main__":

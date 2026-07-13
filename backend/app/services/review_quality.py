@@ -35,6 +35,7 @@ SEVERITY_ALIASES = {
 }
 
 SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+KOREAN_PATTERN = re.compile(r"[가-힣]")
 HUNK_HEADER_PATTERN = re.compile(
     r"^@@\s+-\d+(?:,\d+)?\s+\+(?P<start>\d+)(?:,(?P<count>\d+))?\s+@@"
 )
@@ -91,6 +92,7 @@ def validate_and_rank_findings(
         "accepted": 0,
         "unknown_file_dropped": 0,
         "empty_finding_dropped": 0,
+        "non_korean_finding_dropped": 0,
         "duplicate_dropped": 0,
         "invalid_line_removed": 0,
         "invalid_policy_source_removed": 0,
@@ -110,6 +112,11 @@ def validate_and_rank_findings(
             continue
         if not finding.message.strip() or not finding.suggestion.strip():
             report["empty_finding_dropped"] += 1
+            continue
+        if not KOREAN_PATTERN.search(finding.message) or not KOREAN_PATTERN.search(
+            finding.suggestion
+        ):
+            report["non_korean_finding_dropped"] += 1
             continue
 
         severity = SEVERITY_ALIASES.get(finding.severity.strip().lower(), "medium")
