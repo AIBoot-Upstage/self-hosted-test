@@ -297,6 +297,7 @@ class ReviewResult:
     features: PullRequestFeatures
     model_call: ModelCallUsage
     retrieved_policies: list[PolicyChunk] = field(default_factory=list)
+    finding_validation: JsonDict = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> JsonDict:
@@ -310,5 +311,6 @@ class ReviewResult:
             "features": self.features.to_dict(),
             "model_call": self.model_call.to_dict(),
             "retrieved_policies": [chunk.to_dict() for chunk in self.retrieved_policies],
+            "finding_validation": self.finding_validation,
             "created_at": self.created_at,
         }

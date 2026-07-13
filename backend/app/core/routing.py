@@ -111,7 +111,14 @@ def select_route(features: PullRequestFeatures, review_mode: str = "auto") -> Re
             name="deep_quality_review",
             model_tier="solar3-high",
             use_rag=features.policy_available,
-            focus=["architecture", "security", "performance", "maintainability"],
+            focus=[
+                "architecture",
+                "security",
+                "time_complexity",
+                "space_complexity",
+                "simplification",
+                "maintainability",
+            ],
             reasons=["manual deep review requested"],
             confidence=max(0.7, features.router_confidence),
         )

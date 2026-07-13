@@ -3,6 +3,10 @@
 GitHub Pull Request의 diff, lint/test 결과, 저장소 정책을 분석해 상황별로
 동일한 Solar3 모델의 low/medium/high 추론 강도를 선택하는 AI 코드 리뷰 에이전트입니다.
 
+프로젝트 전체를 코드 없이 파악하려면 [프로젝트 현황](docs/프로젝트%20현황.md)을 먼저
+읽으세요. 다른 사람에게 설명하기 위한 문제, 가치와 핵심 개념은
+[프로젝트 설명서](docs/프로젝트%20설명서.md)에 정리되어 있습니다.
+
 ## Local Quickstart
 
 의존성 설치 없이 mock LLM으로 핵심 흐름을 먼저 확인할 수 있습니다.
@@ -129,7 +133,7 @@ LANGFUSE_HOST=https://cloud.langfuse.com
 | --- | --- | --- |
 | syntax, lint, or test failed | `simple_failure_review` | `solar3-low` / `low` |
 | checks passed and repository policy exists | `policy_context_review` | `solar3-medium` / `medium` |
-| high-risk paths, large diff, or low confidence | `deep_quality_review` | `solar3-high` / `high` |
+| user requests the GitHub Check action | `deep_quality_review` | `solar3-high` / `high` |
 
 ## LangGraph Workflow
 
@@ -142,6 +146,7 @@ create_review
  -> retrieve_policies 또는 skip_policy_retrieval
  -> build_prompt
  -> call_llm
+ -> validate_findings
  -> assemble_result
  -> persist_result
  -> publish_comment
@@ -153,18 +158,44 @@ create_review
 순서를 따르는 fallback executor가 동작하지만, 배포 환경은 `pyproject.toml`의
 `langgraph` 의존성으로 실제 LangGraph 런타임을 사용합니다.
 
+모델 결과는 바로 게시하지 않습니다. `validate_findings`에서 changed file, right-side diff line,
+정책 출처, 중복과 route별 최대 개수를 검증합니다. 검증된 line finding은 GitHub inline review로,
+나머지는 PR-level summary comment로 게시합니다.
+
+## Review Evaluation Data
+
+공개 저장소의 PR review와 inline comment를 평가용 JSONL로 수집할 수 있습니다. 결과는 기본적으로
+Git에서 제외되는 `.local-data/`에 저장합니다.
+
+```bash
+GITHUB_TOKEN=... python -m scripts.collect_open_source_reviews \
+  openai/codex --max-prs 25
+```
+
+수집 데이터는 maintainer finding 재현율, 승인 상태 false-positive, 정책 미주입/주입 A/B 평가에
+사용하며 model input에는 maintainer comment와 이후 patch를 넣지 않습니다.
+
 ## Repository Policies
 
-Docker/배포 기본값은 Postgres + pgvector에 정책 chunk를 동기화한 뒤 검색합니다.
+Docker/배포 기본값은 Postgres `policy_chunks`에 정책 chunk를 동기화한 뒤 검색합니다.
 `POLICY_ROOT` 아래 Markdown, CODEOWNERS, PR template을 policy chunk로 분리해
 `policy_chunks` 테이블에 저장합니다. DB가 없는 로컬 개발에서는 같은 인터페이스로
 파일 기반 keyword retrieval fallback을 사용할 수 있습니다.
 
-기본 샘플:
+기본 공통 정책 세트:
 
 ```text
-policies/sample-review-policy.md
+policies/api-contract.md
+policies/github-review-workflow.md
+policies/testing-and-routing.md
+policies/security-and-privacy.md
+policies/performance-and-maintainability.md
+policies/observability-and-reliability.md
 ```
+
+현재 Postgres backend도 검색 자체는 lexical overlap을 사용하며 `embedding` 컬럼은 vector/hybrid
+retrieval 전환을 위한 예약 필드입니다. 설치 대상 repository의 문서를 자동 수집하는 방식이
+아니라, 배포된 위 정책 세트를 공통 기준으로 사용합니다.
 
 ## GitHub App Webhook Integration
 

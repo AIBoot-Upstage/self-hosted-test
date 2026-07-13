@@ -1,4 +1,6 @@
+import json
 import unittest
+from unittest.mock import patch
 
 from backend.app.core.schemas import (
     GitHubPayload,
@@ -10,6 +12,7 @@ from backend.app.core.schemas import (
     ReviewResult,
     ReviewRoute,
     ReviewSummary,
+    ReviewFinding,
 )
 from backend.app.services.publisher import GitHubPublisher, format_review_markdown
 
@@ -21,6 +24,17 @@ class FakeGitHubAppClient:
     def update_check_run(self, owner, repo, check_run_id, token, payload):
         self.payload = payload
         return {"id": check_run_id, "html_url": "https://github.com/team/repo/runs/1"}
+
+
+class FakeResponse:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+    def read(self):
+        return b'{"id": 77}'
 
 
 def _review_result(route_name="policy_context_review"):
@@ -95,6 +109,64 @@ class PublisherTest(unittest.TestCase):
         self.assertEqual(app_client.payload["conclusion"], "success")
         self.assertEqual(app_client.payload["actions"][0]["label"], "심층 리뷰 실행")
         self.assertEqual(app_client.payload["actions"][0]["identifier"], "run_deep_review")
+
+    def test_summary_mentions_inline_findings_without_repeating_them(self):
+        result = _review_result()
+        inline_finding = ReviewFinding(
+            severity="high",
+            category="functional_correctness",
+            file_path="app/service.py",
+            line_start=10,
+            line_end=10,
+            message="Empty input raises an exception.",
+            suggestion="Return an empty result before indexing.",
+        )
+        result = ReviewResult(
+            **{
+                **result.__dict__,
+                "findings": [inline_finding],
+            }
+        )
+
+        markdown = format_review_markdown(result, findings=[], inline_findings_count=1)
+
+        self.assertIn("1개 항목은 diff inline comment", markdown)
+        self.assertNotIn("Empty input raises", markdown)
+
+    def test_posts_validated_findings_as_pull_request_review_comments(self):
+        publisher = GitHubPublisher(token="token")
+        request = ReviewRequest(
+            repository=RepositoryPayload(provider="github", owner="team", name="repo"),
+            pull_request=PullRequestPayload(
+                number=7,
+                title="Test",
+                author="dev",
+                base_sha="base",
+                head_sha="head",
+                base_branch="main",
+                head_branch="feature",
+            ),
+        )
+        finding = ReviewFinding(
+            severity="high",
+            category="functional_correctness",
+            file_path="app/service.py",
+            line_start=10,
+            line_end=10,
+            message="Empty input raises an exception.",
+            suggestion="Return an empty result before indexing.",
+        )
+
+        with patch("urllib.request.urlopen", return_value=FakeResponse()) as urlopen:
+            response = publisher._post_pull_review(request, "token", [finding])
+
+        http_request = urlopen.call_args.args[0]
+        payload = json.loads(http_request.data)
+        self.assertEqual(response["id"], 77)
+        self.assertEqual(payload["commit_id"], "head")
+        self.assertEqual(payload["comments"][0]["path"], "app/service.py")
+        self.assertEqual(payload["comments"][0]["line"], 10)
+        self.assertEqual(payload["comments"][0]["side"], "RIGHT")
 
 
 if __name__ == "__main__":

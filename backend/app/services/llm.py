@@ -205,6 +205,11 @@ class LiteLLMClient:
             "api_key": self.settings.upstage_api_key,
             "api_base": self.settings.upstage_api_base_url,
             "temperature": 0.1,
+            "max_tokens": {
+                "simple_failure_review": 700,
+                "policy_context_review": 1200,
+                "deep_quality_review": 1800,
+            }.get(route.name, 1200),
             "timeout": 90,
             "metadata": {
                 "review_run_id": review_run_id,

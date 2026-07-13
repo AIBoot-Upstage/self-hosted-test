@@ -144,6 +144,11 @@ jobs:
           AI_REVIEWER_IMAGE="${AI_REVIEWER_IMAGE}" \
             docker compose -p ai-code-review-agent up -d --no-build --remove-orphans
 
+          COMPOSE_FILE=docker-compose.yml \
+          AI_REVIEWER_IMAGE="${AI_REVIEWER_IMAGE}" \
+            docker compose -p ai-code-review-agent exec -T api \
+              python -c 'import json; from backend.app.core.config import Settings; from backend.app.services.rag import create_policy_index; print(json.dumps(create_policy_index(Settings.from_env()).sync(), ensure_ascii=False))'
+
           docker image prune -f
           rm -f "${IMAGE_ARCHIVE}" "${RUNTIME_ARCHIVE}"
           SCRIPT

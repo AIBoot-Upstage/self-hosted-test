@@ -43,6 +43,111 @@ class LocalPolicyIndexTest(unittest.TestCase):
             self.assertTrue(index.has_policy())
             self.assertTrue(results)
             self.assertEqual(results[0].source_path, "api-policy.md")
+            self.assertGreater(results[0].score, 0)
+
+    def test_local_policy_index_does_not_fallback_to_unrelated_policy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp_path = Path(directory)
+            (tmp_path / "security-policy.md").write_text(
+                "# Secret Logging\n\nAuthentication tokens must never be logged.\n",
+                encoding="utf-8",
+            )
+            request = ReviewRequest.from_dict(
+                {
+                    "repository": {"owner": "team", "name": "repo"},
+                    "pull_request": {
+                        "number": 2,
+                        "title": "Adjust calendar color",
+                        "author": "dev",
+                        "base_sha": "a",
+                        "head_sha": "b",
+                    },
+                    "changed_files": [
+                        {
+                            "path": "frontend/calendar.css",
+                            "additions": 1,
+                            "deletions": 1,
+                            "patch": "+color: blue;",
+                        }
+                    ],
+                }
+            )
+
+            self.assertEqual(LocalPolicyIndex(tmp_path).search(request), [])
+
+    def test_local_policy_index_tokenizes_file_path_segments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp_path = Path(directory)
+            (tmp_path / "webhook-policy.md").write_text(
+                "# Webhook Signature\n\nWebhook handlers must verify the signature before parsing.",
+                encoding="utf-8",
+            )
+            request = ReviewRequest.from_dict(
+                {
+                    "repository": {"owner": "team", "name": "repo"},
+                    "pull_request": {"number": 3, "title": "Refactor handler"},
+                    "changed_files": [
+                        {
+                            "path": "backend/app/services/github_webhook.py",
+                            "additions": 5,
+                            "deletions": 2,
+                            "patch": "+def verify_signature(payload): ...",
+                        }
+                    ],
+                }
+            )
+
+            results = LocalPolicyIndex(tmp_path).search(request)
+
+            self.assertTrue(results)
+            self.assertEqual(results[0].source_path, "webhook-policy.md")
+
+    def test_markdown_headings_are_metadata_not_standalone_chunks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp_path = Path(directory)
+            (tmp_path / "observability-policy.md").write_text(
+                "# Observability Policy\n\n## Trace Context\n\nAPI calls include a review run id.\n",
+                encoding="utf-8",
+            )
+
+            chunks = LocalPolicyIndex(tmp_path).load_chunks()
+
+            self.assertEqual(len(chunks), 1)
+            self.assertEqual(chunks[0].section_title, "Trace Context")
+            self.assertEqual(chunks[0].policy_type, "observability")
+            self.assertNotIn("#", chunks[0].content)
+
+    def test_project_policy_retrieval_returns_normative_api_rule(self):
+        policy_root = Path(__file__).resolve().parents[1] / "policies"
+        request = ReviewRequest.from_dict(
+            {
+                "repository": {"owner": "team", "name": "repo"},
+                "pull_request": {"number": 4, "title": "Change profile API response field"},
+                "checks": [
+                    {
+                        "kind": "test",
+                        "status": "completed",
+                        "conclusion": "success",
+                        "summary": "API tests passed",
+                    }
+                ],
+                "changed_files": [
+                    {
+                        "path": "backend/app/api/profile.py",
+                        "additions": 4,
+                        "deletions": 2,
+                        "patch": "+return {'profile': profile}",
+                    }
+                ],
+            }
+        )
+
+        results = LocalPolicyIndex(policy_root).search(request, top_k=3)
+
+        self.assertTrue(results)
+        self.assertEqual(results[0].source_path, "api-contract.md")
+        self.assertEqual(results[0].section_title, "API-001 안정적인 응답 계약")
+        self.assertNotIn("적용 범위", [result.section_title for result in results])
 
 
 if __name__ == "__main__":

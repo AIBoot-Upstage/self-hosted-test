@@ -65,9 +65,12 @@ class OrchestratorTest(unittest.TestCase):
             event_names = [event_name for event_name, _ in events]
             self.assertIn("route_selected", event_names)
             self.assertIn("llm_call_completed", event_names)
+            self.assertIn("findings_validated", event_names)
             self.assertEqual(event_names[-1], "review_completed")
             completed_payload = events[-1][1]
             self.assertIn(completed_payload["workflow_engine"], {"langgraph", "local_fallback"})
+            self.assertEqual(result.finding_validation["received"], 1)
+            self.assertEqual(result.finding_validation["accepted"], 1)
             self.assertTrue(result.findings)
             self.assertTrue(settings.review_store_path.exists())
             self.assertTrue(list(settings.comment_output_dir.glob("*.md")))

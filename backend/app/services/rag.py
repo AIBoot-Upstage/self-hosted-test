@@ -8,19 +8,48 @@ from pathlib import Path
 from backend.app.core.config import Settings
 from backend.app.core.schemas import PolicyChunk, ReviewRequest
 
-TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_./-]+")
+TOKEN_PATTERN = re.compile(r"[\w./-]+", re.UNICODE)
+TOKEN_SPLIT_PATTERN = re.compile(r"[_./-]+")
 POLICY_GLOBS = ("*.md", "**/*.md", "CODEOWNERS", ".github/pull_request_template.md")
+NON_NORMATIVE_SECTION_TITLES = {"적용 범위", "scope", "overview"}
+POLICY_TYPE_PATH_HINTS = (
+    ("security", "security"),
+    ("api", "api"),
+    ("test", "test"),
+    ("performance", "performance"),
+    ("maintainability", "maintainability"),
+    ("observability", "observability"),
+    ("reliability", "reliability"),
+    ("github", "architecture"),
+    ("workflow", "architecture"),
+    ("style", "style"),
+    ("architecture", "architecture"),
+)
 
 
 def _tokens(text: str) -> set[str]:
-    return {token.lower() for token in TOKEN_PATTERN.findall(text) if len(token) > 2}
+    tokens: set[str] = set()
+    for raw_token in TOKEN_PATTERN.findall(text):
+        normalized = raw_token.lower()
+        if len(normalized) > 2:
+            tokens.add(normalized)
+        tokens.update(
+            part
+            for part in TOKEN_SPLIT_PATTERN.split(normalized)
+            if len(part) > 2
+        )
+    return tokens
 
 
 def _policy_type(path: Path, content: str) -> str:
-    lowered = f"{path} {content[:500]}".lower()
-    for candidate in ("security", "api", "test", "style", "architecture"):
-        if candidate in lowered:
-            return candidate
+    lowered_path = str(path).lower()
+    for hint, policy_type in POLICY_TYPE_PATH_HINTS:
+        if hint in lowered_path:
+            return policy_type
+    lowered_content = content[:500].lower()
+    for hint, policy_type in POLICY_TYPE_PATH_HINTS:
+        if hint in lowered_content:
+            return policy_type
     return "general"
 
 
@@ -34,6 +63,9 @@ def _split_markdown(source_path: Path, content: str, max_chars: int = 1800) -> l
             return
         text = "\n".join(buffer).strip()
         if not text:
+            buffer.clear()
+            return
+        if section_title.strip().lower() in NON_NORMATIVE_SECTION_TITLES:
             buffer.clear()
             return
         while len(text) > max_chars:
@@ -60,6 +92,7 @@ def _split_markdown(source_path: Path, content: str, max_chars: int = 1800) -> l
         if line.startswith("#"):
             flush()
             section_title = line.lstrip("#").strip() or source_path.name
+            continue
         buffer.append(line)
     flush()
     return chunks
@@ -69,7 +102,8 @@ def _query_tokens(request: ReviewRequest) -> set[str]:
     query_parts = [
         request.pull_request.title,
         " ".join(changed_file.path for changed_file in request.changed_files),
-        " ".join(changed_file.patch[:800] for changed_file in request.changed_files[:5]),
+        " ".join(check.summary[:1000] for check in request.checks),
+        " ".join(changed_file.patch[:1200] for changed_file in request.changed_files[:10]),
     ]
     return _tokens("\n".join(query_parts))
 
@@ -97,7 +131,7 @@ def _score_chunks(chunks: list[PolicyChunk], request: ReviewRequest, top_k: int)
         )
 
     if not scored:
-        return chunks[: min(top_k, len(chunks))]
+        return []
     return sorted(scored, key=lambda item: item.score, reverse=True)[:top_k]
 
 

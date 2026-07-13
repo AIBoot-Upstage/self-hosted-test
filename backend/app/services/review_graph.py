@@ -19,6 +19,7 @@ from backend.app.services.llm import LLMClient
 from backend.app.services.prompt_builder import build_review_messages
 from backend.app.services.publisher import ReviewPublisher
 from backend.app.services.rag import LocalPolicyIndex
+from backend.app.services.review_quality import validate_and_rank_findings
 from backend.app.storage.factory import ReviewStore
 
 try:
@@ -103,6 +104,7 @@ class ReviewWorkflowState(TypedDict, total=False):
     messages: list[dict[str, str]]
     summary: ReviewSummary
     findings: list[ReviewFinding]
+    finding_validation: JsonDict
     usage: ModelCallUsage
     result: ReviewResult
     publish_result: dict[str, object]
@@ -146,6 +148,7 @@ class ReviewWorkflowGraph:
         graph.add_node("skip_policy_retrieval", self._skip_policy_retrieval)
         graph.add_node("build_prompt", self._build_prompt)
         graph.add_node("call_llm", self._call_llm)
+        graph.add_node("validate_findings", self._validate_findings)
         graph.add_node("assemble_result", self._assemble_result)
         graph.add_node("persist_result", self._persist_result)
         graph.add_node("publish_comment", self._publish_comment)
@@ -165,7 +168,8 @@ class ReviewWorkflowGraph:
         graph.add_edge("retrieve_policies", "build_prompt")
         graph.add_edge("skip_policy_retrieval", "build_prompt")
         graph.add_edge("build_prompt", "call_llm")
-        graph.add_edge("call_llm", "assemble_result")
+        graph.add_edge("call_llm", "validate_findings")
+        graph.add_edge("validate_findings", "assemble_result")
         graph.add_edge("assemble_result", "persist_result")
         graph.add_edge("persist_result", "publish_comment")
         graph.add_edge("publish_comment", "complete_review")
@@ -205,8 +209,8 @@ class ReviewWorkflowGraph:
         return "retrieve" if state["route"].use_rag else "skip"
 
     def _retrieve_policies(self, state: ReviewWorkflowState) -> JsonDict:
-        self._publish("policy_retrieval_started", {"top_k": 5})
-        policies = self.policy_index.search(state["request"])
+        self._publish("policy_retrieval_started", {"top_k": 3})
+        policies = self.policy_index.search(state["request"], top_k=3)
         self._publish(
             "policy_retrieval_completed",
             {
@@ -254,6 +258,16 @@ class ReviewWorkflowGraph:
         )
         return {"summary": summary, "findings": findings, "usage": usage}
 
+    def _validate_findings(self, state: ReviewWorkflowState) -> JsonDict:
+        findings, report = validate_and_rank_findings(
+            request=state["request"],
+            route=state["route"],
+            policies=state["policies"],
+            findings=state["findings"],
+        )
+        self._publish("findings_validated", report)
+        return {"findings": findings, "finding_validation": report}
+
     def _assemble_result(self, state: ReviewWorkflowState) -> JsonDict:
         request = state["request"]
         result = ReviewResult(
@@ -266,6 +280,7 @@ class ReviewWorkflowGraph:
             features=state["features"],
             model_call=state["usage"],
             retrieved_policies=state["policies"],
+            finding_validation=state["finding_validation"],
         )
         return {"result": result}
 
