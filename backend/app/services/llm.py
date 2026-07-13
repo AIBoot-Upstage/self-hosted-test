@@ -103,7 +103,7 @@ def _fallback_change_summary(request: ReviewRequest) -> str:
     )
 
 
-def _first_harness_card_id(messages: list[dict[str, str]]) -> str | None:
+def _harness_card_contract(messages: list[dict[str, str]]) -> tuple[bool, str | None]:
     for message in reversed(messages):
         if message.get("role") != "user":
             continue
@@ -111,10 +111,14 @@ def _first_harness_card_id(messages: list[dict[str, str]]) -> str | None:
             payload = json.loads(message.get("content") or "{}")
         except json.JSONDecodeError:
             continue
-        cards = (payload.get("review_harness") or {}).get("knowledge_cards") or []
+        harness = payload.get("review_harness")
+        if not isinstance(harness, dict):
+            continue
+        cards = harness.get("knowledge_cards") or []
         if cards and isinstance(cards[0], dict):
-            return str(cards[0].get("card_id") or "") or None
-    return None
+            return True, str(cards[0].get("card_id") or "") or None
+        return True, None
+    return False, None
 
 
 class MockLLMClient:
@@ -137,7 +141,7 @@ class MockLLMClient:
         findings: list[ReviewFinding] = []
         file_path = _first_changed_path(request)
         line = _line_for_first_file(request)
-        knowledge_card_id = _first_harness_card_id(messages)
+        harness_contract, knowledge_card_id = _harness_card_contract(messages)
 
         if route.name == "simple_failure_review":
             failed_checks = [check for check in request.checks if check.is_failed]
@@ -221,6 +225,9 @@ class MockLLMClient:
                         confidence=0.62,
                     )
                 )
+
+        if harness_contract and not knowledge_card_id:
+            findings = []
 
         model = self.settings.model_for_tier(route.model_tier)
         reasoning_effort = self.settings.reasoning_effort_for_tier(route.model_tier)

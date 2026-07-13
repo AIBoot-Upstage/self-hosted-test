@@ -173,6 +173,21 @@ class PromptBuilderTest(unittest.TestCase):
         ]
         self.assertEqual(prompt_scope["original_total_files"], 12)
         self.assertEqual(prompt_scope["batch_count"], len(batches))
+        finding_limits = [
+            json.loads(batch.messages[1]["content"])["max_findings"]
+            for batch in batches
+        ]
+        self.assertTrue(all(limit == 1 for limit in finding_limits))
+
+    def test_single_batch_keeps_route_finding_limit_and_counterevidence_rule(self):
+        batches = build_review_prompt_batches(_request(), self._policy_route(), [])
+
+        prompt = json.loads(batches[0].messages[1]["content"])
+
+        self.assertEqual(prompt["max_findings"], 6)
+        instructions = " ".join(prompt["review_harness_instructions"])
+        self.assertIn("주장을 반증하는 코드", instructions)
+        self.assertIn("빈 findings", instructions)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, replace
 
 from backend.app.core.routing import HIGH_RISK_PATH_KEYWORDS
@@ -249,6 +250,13 @@ def build_review_messages(
             for policy in policies
         ],
     }
+    route_max_findings = {
+        "simple_failure_review": 3,
+        "policy_context_review": 6,
+        "deep_quality_review": 8,
+    }.get(route.name, 6)
+    batch_count = max(1, int((prompt_context or {}).get("batch_count", 1)))
+    batch_max_findings = max(1, math.ceil(route_max_findings / batch_count))
 
     system = (
         "You are an AI code review agent for GitHub Pull Requests. "
@@ -273,6 +281,9 @@ def build_review_messages(
             "evidence_required를 diff에서 입증하지 못하거나 false_positive_guard에 해당하면 finding을 생략한다.",
             "제공된 diff에 코드가 없다는 사실만으로 저장소 전체에 검증, 예외 처리, 테스트가 없다고 단정하지 않는다.",
             "선택 개선안이 아니라 현재 diff가 만드는 재현 가능한 잘못된 동작만 finding으로 작성한다.",
+            "finding을 만들기 전에 제공된 모든 line에서 할당, 기본 반환, 검증, fallback 등 주장을 반증하는 코드를 찾고 하나라도 있으면 생략한다.",
+            "max_findings는 목표 개수가 아닌 상한이며 입증된 결함이 없으면 빈 findings가 올바른 응답이다.",
+            "외부 API·network·LLM 직접 호출 또는 flaky test 주장은 해당 client 호출과 mock·fake 부재가 diff에 함께 보일 때만 작성한다.",
         ],
         "finding_contract": {
             "allowed_knowledge_card_ids": (
@@ -302,11 +313,7 @@ def build_review_messages(
             "medium": "bounded real defect",
             "low": "evidence-backed maintainability or test weakness",
         },
-        "max_findings": {
-            "simple_failure_review": 3,
-            "policy_context_review": 6,
-            "deep_quality_review": 8,
-        }.get(route.name, 6),
+        "max_findings": batch_max_findings,
         "review_payload": payload,
         "output_schema": {
             "summary": {

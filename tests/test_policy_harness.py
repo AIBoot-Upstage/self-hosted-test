@@ -83,6 +83,12 @@ class PolicyHarnessTest(unittest.TestCase):
         )
         self.assertGreater(result["vs_legacy_context_reduction"], 0.2)
         self.assertGreater(result["policy_context_reduction"], 0.5)
+        test_card = next(
+            card
+            for card in self.harness.knowledge_cards
+            if card["id"] == "test-distinguishes-regression"
+        )
+        self.assertIn("network·LLM client", test_card["false_positive_guard"])
 
     def test_prompt_includes_selected_skills_and_at_most_two_policies(self):
         request = ReviewRequest.from_dict(
@@ -221,6 +227,7 @@ class PolicyHarnessTest(unittest.TestCase):
         card_ids = {card.card_id for card in context.knowledge_cards}
 
         self.assertNotIn("input-boundary-safety", skill_ids)
+        self.assertNotIn("behavior-edge-and-failure-path", card_ids)
         self.assertNotIn("untrusted-input-before-sink", card_ids)
         self.assertNotIn("api-breaking-shape-change", card_ids)
 
