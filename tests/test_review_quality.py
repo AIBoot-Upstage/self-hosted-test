@@ -146,6 +146,34 @@ class ReviewQualityTest(unittest.TestCase):
         self.assertEqual(findings, [])
         self.assertEqual(report["missing_knowledge_card_dropped"], 1)
 
+    def test_drops_claim_forbidden_by_selected_card(self):
+        card = ReviewKnowledgeCard(
+            card_id="test-regression",
+            title="Regression assertion",
+            skill_id="change-correctness",
+            check="Check behavior assertions.",
+            evidence_required="An assertion tied to changed behavior.",
+            false_positive_guard="Do not infer network behavior.",
+            severity_cap="medium",
+            forbidden_claim_markers=["네트워크", "mock"],
+        )
+        finding = self._finding(
+            knowledge_card_id="test-regression",
+            message="테스트가 실제 네트워크를 호출합니다.",
+            suggestion="mock으로 외부 호출을 대체하세요.",
+        )
+
+        findings, report = validate_and_rank_findings(
+            self.request,
+            self.route,
+            self.policies,
+            [finding],
+            knowledge_cards=[card],
+        )
+
+        self.assertEqual(findings, [])
+        self.assertEqual(report["knowledge_card_guard_dropped"], 1)
+
     def test_drops_english_finding_before_publishing(self):
         findings, report = validate_and_rank_findings(
             self.request,

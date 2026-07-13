@@ -36,7 +36,8 @@
       "require_path_and_patch": true,
       "check": "새 테스트가 변경 전에는 실패하고 올바른 구현에서만 통과할 만한 결과를 검증하는지 확인한다.",
       "evidence_required": "검증 대상 동작과 assertion 사이의 연결 또는 빠진 구체적 failure scenario",
-      "false_positive_guard": "coverage 비율이나 테스트 파일 존재만으로 충분·불충분을 판정하지 않는다. 외부 API나 flaky test라고 지적하려면 변경된 단위 test line에 실제 network·LLM client 호출과 mock·fake 부재가 모두 보여야 한다. 실제 자격 증명·외부 연결 검증이 목적인 deploy·integration·E2E smoke는 mock을 요구하지 않는다.",
+      "false_positive_guard": "coverage 비율이나 테스트 파일 존재만으로 충분·불충분을 판정하지 않는다. 이 카드는 assertion의 회귀 검출력만 다루며 외부 API, 네트워크, flaky, mock·fake 사용 여부를 지적하는 근거로 사용하지 않는다.",
+      "forbidden_claim_markers": ["외부 api", "실제 api", "네트워크", "network", "flaky", "mock", "fake", "가짜 클라이언트"],
       "severity_cap": "medium",
       "source_ids": ["google-testing-coverage", "google-review-looking-for"]
     },
@@ -113,6 +114,7 @@
       "signals": ["security", "reliability"],
       "path_markers": ["auth", "logging", "observability", "trace"],
       "patch_markers": ["token", "secret", "password", "private_key", "authorization", "payload"],
+      "require_path_and_patch": true,
       "check": "credential, session identifier, private key, 민감 payload가 prompt·log·trace·오류 응답으로 흐르는지 확인한다.",
       "evidence_required": "민감값의 source와 실제 serialization 또는 logging sink",
       "false_positive_guard": "변수명만 민감해 보이고 값은 redaction·hash·존재 여부만 기록되면 유출로 판단하지 않는다.",

@@ -88,7 +88,8 @@ class PolicyHarnessTest(unittest.TestCase):
             for card in self.harness.knowledge_cards
             if card["id"] == "test-distinguishes-regression"
         )
-        self.assertIn("network·LLM client", test_card["false_positive_guard"])
+        self.assertIn("assertion의 회귀 검출력", test_card["false_positive_guard"])
+        self.assertIn("네트워크", test_card["forbidden_claim_markers"])
 
     def test_deployment_smoke_does_not_select_unit_test_cards(self):
         request = ReviewRequest.from_dict(
@@ -120,6 +121,7 @@ class PolicyHarnessTest(unittest.TestCase):
 
         self.assertNotIn("test-distinguishes-regression", selected_card_ids)
         self.assertNotIn("test-brittle-implementation-detail", selected_card_ids)
+        self.assertNotIn("secret-and-sensitive-log-flow", selected_card_ids)
 
     def test_prompt_includes_selected_skills_and_at_most_two_policies(self):
         request = ReviewRequest.from_dict(
@@ -128,8 +130,8 @@ class PolicyHarnessTest(unittest.TestCase):
                 "pull_request": {"number": 2, "title": "Secure API token", "head_sha": "head"},
                 "changed_files": [
                     {
-                        "path": "backend/app/main.py",
-                        "patch": "+verify_token(request.headers['Authorization'])",
+                        "path": "backend/auth/logging.py",
+                        "patch": "+logger.info('Authorization=%s', token)",
                     }
                 ],
             }

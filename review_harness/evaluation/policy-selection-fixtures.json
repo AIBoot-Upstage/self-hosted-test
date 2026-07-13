@@ -232,8 +232,8 @@
       "api-contract",
       "security-boundary"
     ],
-    "expected_cards": ["secret-and-sensitive-log-flow"],
-    "allowed_cards": ["secret-and-sensitive-log-flow"],
+    "expected_cards": [],
+    "allowed_cards": [],
     "expected_policy_types": ["security", "test"]
   }
 ]

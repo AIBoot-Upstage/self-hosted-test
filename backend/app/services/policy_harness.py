@@ -237,6 +237,10 @@ class PolicyHarness:
                     false_positive_guard=str(item.get("false_positive_guard") or ""),
                     severity_cap=str(item.get("severity_cap") or "medium"),
                     source_ids=[str(value) for value in item.get("source_ids", [])],
+                    forbidden_claim_markers=[
+                        str(value).lower()
+                        for value in item.get("forbidden_claim_markers", [])
+                    ],
                     score=(
                         (20 * len(matched_signals))
                         + (10 if matched_path else 0)

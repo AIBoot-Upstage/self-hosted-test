@@ -98,6 +98,7 @@ def validate_and_rank_findings(
         "invalid_policy_source_removed": 0,
         "missing_knowledge_card_dropped": 0,
         "invalid_knowledge_card_dropped": 0,
+        "knowledge_card_guard_dropped": 0,
         "invalid_knowledge_card_ids": [],
         "severity_capped_by_card": 0,
         "over_limit_dropped": 0,
@@ -140,6 +141,16 @@ def validate_and_rank_findings(
                 report["invalid_knowledge_card_ids"].append(knowledge_card_id)
                 continue
             else:
+                claim_text = " ".join(
+                    [
+                        finding.message,
+                        finding.suggestion,
+                        *(str(value) for value in finding.evidence.values()),
+                    ]
+                ).lower()
+                if any(marker in claim_text for marker in card.forbidden_claim_markers):
+                    report["knowledge_card_guard_dropped"] += 1
+                    continue
                 severity_cap = SEVERITY_ALIASES.get(card.severity_cap.lower(), "medium")
                 if SEVERITY_ORDER[severity] < SEVERITY_ORDER[severity_cap]:
                     severity = severity_cap

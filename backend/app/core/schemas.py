@@ -257,6 +257,7 @@ class ReviewKnowledgeCard:
     false_positive_guard: str
     severity_cap: str
     source_ids: list[str] = field(default_factory=list)
+    forbidden_claim_markers: list[str] = field(default_factory=list)
     score: int = 0
 
     def to_dict(self, include_guidance: bool = True) -> JsonDict:
@@ -265,6 +266,7 @@ class ReviewKnowledgeCard:
             payload.pop("check", None)
             payload.pop("evidence_required", None)
             payload.pop("false_positive_guard", None)
+            payload.pop("forbidden_claim_markers", None)
         return payload
 
 
