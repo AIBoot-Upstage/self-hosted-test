@@ -6,13 +6,16 @@ import hmac
 import json
 import re
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
 from backend.app.core.config import Settings
 from backend.app.core.schemas import ReviewRequest
+from backend.app.services.rag import REPOSITORY_POLICY_PATH, split_policy_markdown
 
 DEEP_REVIEW_ACTION_IDENTIFIER = "run_deep_review"
 
@@ -130,6 +133,33 @@ class GitHubAppClient:
         )
         check_runs = payload.get("check_runs", [])
         return check_runs if isinstance(check_runs, list) else []
+
+    def get_file_content(
+        self,
+        owner: str,
+        repo: str,
+        path: str,
+        ref: str,
+        token: str,
+    ) -> str | None:
+        encoded_path = urllib.parse.quote(path, safe="/")
+        encoded_ref = urllib.parse.quote(ref, safe="")
+        try:
+            payload = self.request_json(
+                "GET",
+                f"/repos/{_quote(owner)}/{_quote(repo)}/contents/{encoded_path}?ref={encoded_ref}",
+                token=token,
+            )
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return None
+            raise
+        if not isinstance(payload, dict) or payload.get("encoding") != "base64":
+            return None
+        encoded_content = str(payload.get("content") or "").replace("\n", "")
+        if not encoded_content:
+            return ""
+        return base64.b64decode(encoded_content).decode("utf-8", errors="replace")
 
     def create_check_run(
         self,
@@ -397,6 +427,7 @@ class GitHubWebhookProcessor:
         installation_id = _installation_id(payload)
         resolved_token = token or self.client.installation_token(installation_id)
         pull_number = int(pull_request.get("number", 0))
+        base_sha = _nested_str(pull_request, "base", "sha")
         head_sha = _nested_str(pull_request, "head", "sha")
         files = self.client.list_pull_files(
             repository["owner"],
@@ -410,6 +441,24 @@ class GitHubWebhookProcessor:
             head_sha,
             resolved_token,
         )
+        repository_policy = self.client.get_file_content(
+            repository["owner"],
+            repository["name"],
+            REPOSITORY_POLICY_PATH,
+            base_sha,
+            resolved_token,
+        )
+        changed_files = [_changed_file_payload(changed_file) for changed_file in files]
+        if review_mode == "deep_quality_review":
+            changed_files = self._attach_python_sources(
+                repository["owner"],
+                repository["name"],
+                files,
+                changed_files,
+                base_sha,
+                head_sha,
+                resolved_token,
+            )
 
         return ReviewRequest.from_dict(
             {
@@ -423,13 +472,20 @@ class GitHubWebhookProcessor:
                     "number": pull_number,
                     "title": str(pull_request.get("title", "")),
                     "author": _nested_str(pull_request, "user", "login"),
-                    "base_sha": _nested_str(pull_request, "base", "sha"),
+                    "base_sha": base_sha,
                     "head_sha": head_sha,
                     "base_branch": _nested_str(pull_request, "base", "ref"),
                     "head_branch": _nested_str(pull_request, "head", "ref"),
                 },
                 "checks": [_check_result_payload(check) for check in checks],
-                "changed_files": [_changed_file_payload(changed_file) for changed_file in files],
+                "changed_files": changed_files,
+                "repository_policies": [
+                    chunk.to_dict()
+                    for chunk in split_policy_markdown(
+                        REPOSITORY_POLICY_PATH,
+                        repository_policy or "",
+                    )
+                ],
                 "github": {
                     "run_id": delivery_id,
                     "delivery_id": delivery_id,
@@ -440,6 +496,51 @@ class GitHubWebhookProcessor:
                 "review_mode": review_mode,
             }
         )
+
+    def _attach_python_sources(
+        self,
+        owner: str,
+        repo: str,
+        raw_files: list[dict[str, Any]],
+        changed_files: list[dict[str, Any]],
+        base_sha: str,
+        head_sha: str,
+        token: str,
+    ) -> list[dict[str, Any]]:
+        by_path = {str(item.get("filename") or ""): item for item in raw_files}
+        candidates = sorted(
+            (
+                item
+                for item in changed_files
+                if str(item.get("path") or "").lower().endswith(".py")
+            ),
+            key=lambda item: int(item.get("additions") or 0)
+            + int(item.get("deletions") or 0),
+            reverse=True,
+        )[:8]
+
+        def fetch(item: dict[str, Any]) -> tuple[str, str, str]:
+            path = str(item.get("path") or "")
+            raw_file = by_path.get(path, {})
+            base_path = str(raw_file.get("previous_filename") or path)
+            base_content = self.client.get_file_content(
+                owner, repo, base_path, base_sha, token
+            )
+            head_content = self.client.get_file_content(
+                owner, repo, path, head_sha, token
+            )
+            return path, base_content or "", head_content or ""
+
+        with ThreadPoolExecutor(max_workers=min(4, len(candidates) or 1)) as executor:
+            sources = {path: (base, head) for path, base, head in executor.map(fetch, candidates)}
+        return [
+            {
+                **item,
+                "base_content": sources.get(str(item.get("path") or ""), ("", ""))[0],
+                "head_content": sources.get(str(item.get("path") or ""), ("", ""))[1],
+            }
+            for item in changed_files
+        ]
 
 
 def _quote(value: str) -> str:

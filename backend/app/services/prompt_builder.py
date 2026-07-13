@@ -218,6 +218,12 @@ def build_review_messages(
         budget=budget,
         prompt_context=prompt_context,
     )
+    included_paths = {str(item["path"]) for item in changed_files}
+    complexity_metrics = [
+        metric.to_dict()
+        for metric in request.complexity_metrics
+        if metric.file_path in included_paths
+    ]
     payload = {
         "repository": request.repository.full_name,
         "pull_request": {
@@ -237,6 +243,7 @@ def build_review_messages(
             for check in request.checks
         ],
         "changed_files": changed_files,
+        "complexity_metrics": complexity_metrics,
         "prompt_scope": prompt_scope,
         "policies": [
             {
@@ -284,6 +291,9 @@ def build_review_messages(
             "finding을 만들기 전에 제공된 모든 line에서 할당, 기본 반환, 검증, fallback 등 주장을 반증하는 코드를 찾고 하나라도 있으면 생략한다.",
             "max_findings는 목표 개수가 아닌 상한이며 입증된 결함이 없으면 빈 findings가 올바른 응답이다.",
             "외부 API·network·LLM 직접 호출 또는 flaky test 주장은 해당 client 호출과 mock·fake 부재가 diff에 함께 보일 때만 작성한다.",
+            "cyclomatic complexity 수치를 직접 추측하거나 diff에서 계산하지 않는다. review_payload.complexity_metrics의 Radon 측정값만 사용한다.",
+            "복잡도 finding은 after가 threshold를 초과하고 delta가 양수인 항목에만 작성하며 evidence.metric_id에 정확한 metric_id를 기록한다.",
+            "복잡도 측정값이 없는 언어나 파일에는 정량적 복잡도 finding을 만들지 않는다.",
         ],
         "finding_contract": {
             "allowed_knowledge_card_ids": (
@@ -344,6 +354,7 @@ def build_review_messages(
                         "trigger": "문제를 발생시키는 입력, 상태 또는 실행 조건",
                         "consequence": "관찰 가능한 실패 또는 유지보수 비용",
                         "supporting_context": "구체적인 diff 또는 check 근거",
+                        "metric_id": "복잡도 finding일 때 complexity_metrics의 정확한 metric_id",
                     },
                     "policy_source": "optional policy source",
                     "knowledge_card_id": "finding_contract.allowed_knowledge_card_ids 중 정확히 하나",
@@ -377,7 +388,16 @@ def build_review_prompt_batches(
     batches: list[ReviewPromptBatch] = []
     for offset, changed_files in enumerate(file_groups):
         batch_index = offset + 1
-        batch_request = replace(request, changed_files=changed_files)
+        batch_paths = {changed_file.path for changed_file in changed_files}
+        batch_request = replace(
+            request,
+            changed_files=changed_files,
+            complexity_metrics=[
+                metric
+                for metric in request.complexity_metrics
+                if metric.file_path in batch_paths
+            ],
+        )
         patch_chars = sum(len(changed_file.patch) for changed_file in changed_files)
         batch_harness = policy_harness.select(batch_request, route) if policy_harness else None
         if policy_harness and route.use_rag:

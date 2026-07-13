@@ -1,6 +1,8 @@
 import unittest
+from dataclasses import replace
 
 from backend.app.core.schemas import (
+    ComplexityMetric,
     PolicyChunk,
     ReviewFinding,
     ReviewKnowledgeCard,
@@ -189,6 +191,61 @@ class ReviewQualityTest(unittest.TestCase):
 
         self.assertEqual(findings, [])
         self.assertEqual(report["non_korean_finding_dropped"], 1)
+
+    def test_complexity_finding_requires_matching_measured_metric(self):
+        metric = ComplexityMetric(
+            metric_id="python:cyclomatic_complexity:app/service.py:handle",
+            tool="radon",
+            metric="cyclomatic_complexity",
+            file_path="app/service.py",
+            symbol="handle",
+            line_start=10,
+            before=8,
+            after=18,
+            delta=10,
+            threshold=15,
+            exceeded_threshold=True,
+            rank_before="B",
+            rank_after="C",
+        )
+        request = replace(self.request, complexity_metrics=[metric])
+        card = ReviewKnowledgeCard(
+            card_id="python-cyclomatic-complexity-threshold",
+            title="Python complexity",
+            skill_id="performance-simplification",
+            check="Check measured complexity.",
+            evidence_required="A metric id.",
+            false_positive_guard="Ignore unmeasured claims.",
+            severity_cap="medium",
+        )
+        valid = self._finding(
+            category="maintainability",
+            message="함수 분기가 임계값을 초과했습니다.",
+            suggestion="조건 분기를 작은 함수로 분리하세요.",
+            knowledge_card_id=card.card_id,
+            evidence={"metric_id": metric.metric_id},
+        )
+        invented = self._finding(
+            category="maintainability",
+            message="측정되지 않은 함수가 복잡합니다.",
+            suggestion="측정되지 않은 함수를 분리하세요.",
+            knowledge_card_id=card.card_id,
+            evidence={"metric_id": "invented"},
+        )
+
+        findings, report = validate_and_rank_findings(
+            request,
+            self.route,
+            [],
+            [valid, invented],
+            knowledge_cards=[card],
+        )
+
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].evidence["before"], 8)
+        self.assertEqual(findings[0].evidence["after"], 18)
+        self.assertIn("8에서 18로", findings[0].evidence["trigger"])
+        self.assertEqual(report["invalid_complexity_evidence_dropped"], 1)
 
 
 if __name__ == "__main__":

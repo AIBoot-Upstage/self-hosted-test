@@ -180,6 +180,14 @@
       "distilled_use": "form control의 label, grouping, instruction과 오류 feedback을 확인한다."
     },
     {
+      "id": "radon-complexity-api",
+      "authority": "Radon Documentation",
+      "title": "Using Radon programmatically - Cyclomatic Complexity",
+      "url": "https://radon.readthedocs.io/en/stable/api.html#cyclomatic-complexity",
+      "topics": ["python", "cyclomatic_complexity", "static_analysis"],
+      "distilled_use": "Python AST를 분석해 함수와 메서드의 cyclomatic complexity 및 A-F rank를 기계적으로 산출한다."
+    },
+    {
       "id": "openai-harness-engineering",
       "authority": "OpenAI",
       "title": "Harness engineering: leveraging Codex in an agent-first world",

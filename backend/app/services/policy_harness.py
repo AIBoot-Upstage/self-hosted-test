@@ -148,6 +148,16 @@ class PolicyHarness:
 
     def select(self, request: ReviewRequest, route: ReviewRoute) -> ReviewHarnessContext:
         signals = analyze_diff(request)
+        measured_metrics = [metric.metric_id for metric in request.complexity_metrics]
+        complexity_regressions = [
+            metric.metric_id
+            for metric in request.complexity_metrics
+            if metric.exceeded_threshold and metric.delta > 0
+        ]
+        if measured_metrics:
+            signals["complexity_measured"] = measured_metrics
+        if complexity_regressions:
+            signals["complexity_regression"] = complexity_regressions
         selected: list[ReviewSkill] = []
         for item in self.manifest["skills"]:
             routes = {str(value) for value in item.get("routes", [])}

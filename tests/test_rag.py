@@ -3,10 +3,49 @@ import unittest
 from pathlib import Path
 
 from backend.app.core.schemas import ReviewRequest
-from backend.app.services.rag import LocalPolicyIndex
+from backend.app.services.rag import (
+    REPOSITORY_POLICY_PATH,
+    LocalPolicyIndex,
+    rank_policy_chunks,
+    split_policy_markdown,
+)
 
 
 class LocalPolicyIndexTest(unittest.TestCase):
+    def test_repository_policy_selects_diff_relevant_section(self):
+        chunks = split_policy_markdown(
+            REPOSITORY_POLICY_PATH,
+            """# Team Review Policy
+
+## API Contract
+
+Profile API response must include code and message fields.
+
+## Security Token
+
+Authentication token must never be logged.
+""",
+        )
+        request = ReviewRequest.from_dict(
+            {
+                "repository": {"owner": "team", "name": "repo"},
+                "pull_request": {"number": 10, "title": "Change profile API response"},
+                "changed_files": [
+                    {
+                        "path": "app/api/profile.py",
+                        "patch": "+return {'code': 'ok', 'message': 'done'}",
+                    }
+                ],
+            }
+        )
+
+        results = rank_policy_chunks(chunks, request, top_k=1, policy_types={"api"})
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].source_path, REPOSITORY_POLICY_PATH)
+        self.assertEqual(results[0].section_title, "API Contract")
+        self.assertEqual(results[0].policy_type, "api")
+
     def test_local_policy_index_retrieves_relevant_policy(self):
         with tempfile.TemporaryDirectory() as directory:
             tmp_path = Path(directory)

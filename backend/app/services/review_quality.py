@@ -39,6 +39,7 @@ KOREAN_PATTERN = re.compile(r"[가-힣]")
 HUNK_HEADER_PATTERN = re.compile(
     r"^@@\s+-\d+(?:,\d+)?\s+\+(?P<start>\d+)(?:,(?P<count>\d+))?\s+@@"
 )
+COMPLEXITY_CARD_ID = "python-cyclomatic-complexity-threshold"
 
 
 def _right_side_diff_lines(patch: str) -> set[int]:
@@ -87,6 +88,9 @@ def validate_and_rank_findings(
     changed_files = {changed_file.path: changed_file for changed_file in request.changed_files}
     policy_sources = _canonical_policy_sources(policies)
     cards_by_id = {card.card_id: card for card in knowledge_cards or []}
+    complexity_metrics = {
+        metric.metric_id: metric for metric in request.complexity_metrics
+    }
     report: dict[str, Any] = {
         "received": len(findings),
         "accepted": 0,
@@ -99,6 +103,7 @@ def validate_and_rank_findings(
         "missing_knowledge_card_dropped": 0,
         "invalid_knowledge_card_dropped": 0,
         "knowledge_card_guard_dropped": 0,
+        "invalid_complexity_evidence_dropped": 0,
         "invalid_knowledge_card_ids": [],
         "severity_capped_by_card": 0,
         "over_limit_dropped": 0,
@@ -131,6 +136,7 @@ def validate_and_rank_findings(
                 policy_source = canonical_source
 
         knowledge_card_id = finding.knowledge_card_id
+        evidence = dict(finding.evidence)
         if cards_by_id and not knowledge_card_id:
             report["missing_knowledge_card_dropped"] += 1
             continue
@@ -155,6 +161,34 @@ def validate_and_rank_findings(
                 if SEVERITY_ORDER[severity] < SEVERITY_ORDER[severity_cap]:
                     severity = severity_cap
                     report["severity_capped_by_card"] += 1
+                if card.card_id == COMPLEXITY_CARD_ID:
+                    metric_id = str(evidence.get("metric_id") or "")
+                    metric = complexity_metrics.get(metric_id)
+                    if (
+                        metric is None
+                        or metric.file_path != finding.file_path
+                        or not metric.exceeded_threshold
+                        or metric.delta <= 0
+                    ):
+                        report["invalid_complexity_evidence_dropped"] += 1
+                        continue
+                    evidence.update(
+                        {
+                            "metric_id": metric.metric_id,
+                            "tool": metric.tool,
+                            "metric": metric.metric,
+                            "symbol": metric.symbol,
+                            "before": metric.before,
+                            "after": metric.after,
+                            "delta": metric.delta,
+                            "threshold": metric.threshold,
+                            "trigger": (
+                                f"Radon 측정에서 {metric.symbol} 함수의 cyclomatic complexity가 "
+                                f"{metric.before}에서 {metric.after}로 증가해 임계값 "
+                                f"{metric.threshold}를 초과했습니다."
+                            ),
+                        }
+                    )
 
         line_start = finding.line_start
         line_end = finding.line_end
@@ -175,6 +209,7 @@ def validate_and_rank_findings(
             line_end=line_end,
             message=finding.message.strip(),
             suggestion=finding.suggestion.strip(),
+            evidence=evidence,
             policy_source=policy_source,
             knowledge_card_id=knowledge_card_id,
             confidence=max(0.0, min(float(finding.confidence), 1.0)),

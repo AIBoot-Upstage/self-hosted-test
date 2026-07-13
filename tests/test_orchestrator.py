@@ -5,9 +5,146 @@ from pathlib import Path
 from backend.app.core.config import Settings
 from backend.app.core.schemas import ReviewRequest
 from backend.app.services.orchestrator import create_orchestrator
+from backend.app.services.rag import REPOSITORY_POLICY_PATH, split_policy_markdown
 
 
 class OrchestratorTest(unittest.TestCase):
+    def test_repository_policy_is_selected_and_used_by_review_workflow(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp_path = Path(directory)
+            policy_root = tmp_path / "policies"
+            data_dir = tmp_path / "data"
+            policy_root.mkdir()
+            settings = Settings(
+                policy_root=policy_root,
+                review_harness_root=Path("review_harness"),
+                local_data_dir=data_dir,
+                review_store_path=data_dir / "reviews.json",
+                comment_output_dir=data_dir / "comments",
+                llm_mode="mock",
+                publish_mode="local",
+            )
+            repository_policies = split_policy_markdown(
+                REPOSITORY_POLICY_PATH,
+                """# Team Policy
+
+## API Response Contract
+
+Profile API responses must include code and message fields.
+
+## Security Logging
+
+Authentication tokens must never be logged.
+""",
+            )
+            request = ReviewRequest.from_dict(
+                {
+                    "repository": {"owner": "team", "name": "repo"},
+                    "pull_request": {
+                        "number": 11,
+                        "title": "Change profile API response",
+                        "head_sha": "policy-head",
+                    },
+                    "checks": [
+                        {"kind": "test", "status": "completed", "conclusion": "success"}
+                    ],
+                    "changed_files": [
+                        {
+                            "path": "app/api/profile.py",
+                            "additions": 1,
+                            "patch": (
+                                "@@ -10,1 +10,1 @@\n"
+                                "+return {'code': 'ok', 'message': 'done'}"
+                            ),
+                        }
+                    ],
+                    "repository_policies": [
+                        policy.to_dict() for policy in repository_policies
+                    ],
+                }
+            )
+            events = []
+
+            result = create_orchestrator(settings).run_review(
+                request,
+                event_publisher=lambda event_type, payload: events.append((event_type, payload)),
+            )
+
+            sources = [
+                source
+                for event, payload in events
+                if event == "llm_batch_started"
+                for source in payload["policy_sources"]
+            ]
+            self.assertTrue(result.features.policy_available)
+            self.assertEqual(result.retrieved_policies[0].section_title, "API Response Contract")
+            self.assertIn(
+                f"{REPOSITORY_POLICY_PATH}#API Response Contract",
+                sources,
+            )
+            self.assertNotIn(
+                f"{REPOSITORY_POLICY_PATH}#Security Logging",
+                sources,
+            )
+
+    def test_deep_review_measures_complexity_before_harness_selection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp_path = Path(directory)
+            policy_root = tmp_path / "policies"
+            data_dir = tmp_path / "data"
+            policy_root.mkdir()
+            settings = Settings(
+                policy_root=policy_root,
+                review_harness_root=Path("review_harness"),
+                local_data_dir=data_dir,
+                review_store_path=data_dir / "reviews.json",
+                comment_output_dir=data_dir / "comments",
+                llm_mode="mock",
+                publish_mode="local",
+            )
+            branches = "\n".join(
+                f"    if value > {index}: result += 1" for index in range(15)
+            )
+            request = ReviewRequest.from_dict(
+                {
+                    "repository": {"owner": "team", "name": "repo"},
+                    "pull_request": {"number": 12, "head_sha": "complexity-head"},
+                    "review_mode": "deep_quality_review",
+                    "checks": [
+                        {"kind": "test", "status": "completed", "conclusion": "success"}
+                    ],
+                    "changed_files": [
+                        {
+                            "path": "app/decision.py",
+                            "additions": 15,
+                            "patch": "@@ -1,1 +1,18 @@\n+def decide(value):\n+    result = 0",
+                            "base_content": "def decide(value):\n    return 0\n",
+                            "head_content": (
+                                "def decide(value):\n    result = 0\n"
+                                f"{branches}\n    return result\n"
+                            ),
+                        }
+                    ],
+                }
+            )
+            events = []
+
+            result = create_orchestrator(settings).run_review(
+                request,
+                event_publisher=lambda event_type, payload: events.append((event_type, payload)),
+            )
+
+            complexity_event = next(
+                payload for event, payload in events if event == "complexity_analyzed"
+            )
+            selected_cards = {
+                card.card_id for card in result.review_harness.knowledge_cards
+            }
+            self.assertEqual(result.route.name, "deep_quality_review")
+            self.assertEqual(result.complexity_metrics[0].after, 16)
+            self.assertEqual(complexity_event["threshold_exceeded_count"], 1)
+            self.assertIn("python-cyclomatic-complexity-threshold", selected_cards)
+
     def test_orchestrator_runs_local_review(self):
         with tempfile.TemporaryDirectory() as directory:
             tmp_path = Path(directory)

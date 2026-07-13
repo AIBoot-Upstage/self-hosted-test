@@ -3,10 +3,12 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from typing import Any, TypedDict
 
 from backend.app.core.routing import extract_features, select_route
 from backend.app.core.schemas import (
+    ComplexityMetric,
     FileChangeSummary,
     JsonDict,
     ModelCallUsage,
@@ -24,8 +26,10 @@ from backend.app.services.policy_harness import PolicyHarness
 from backend.app.services.prompt_builder import ReviewPromptBatch, build_review_prompt_batches
 from backend.app.services.publisher import ReviewPublisher
 from backend.app.services.rag import LocalPolicyIndex
+from backend.app.services.rag import rank_policy_chunks
 from backend.app.services.review_quality import validate_and_rank_findings
 from backend.app.storage.factory import ReviewStore
+from review_harness.scripts.complexity_metrics import analyze_complexity
 
 try:
     from langgraph.graph import END, START, StateGraph
@@ -105,6 +109,7 @@ class ReviewWorkflowState(TypedDict, total=False):
     policy_available: bool
     features: PullRequestFeatures
     route: ReviewRoute
+    complexity_metrics: list[ComplexityMetric]
     policies: list[PolicyChunk]
     review_harness: ReviewHarnessContext
     prompt_batches: list[ReviewPromptBatch]
@@ -152,6 +157,7 @@ class ReviewWorkflowGraph:
         graph.add_node("create_review", self._create_review)
         graph.add_node("extract_features", self._extract_features)
         graph.add_node("select_route", self._select_route)
+        graph.add_node("analyze_complexity", self._analyze_complexity)
         graph.add_node("select_harness", self._select_harness)
         graph.add_node("retrieve_policies", self._retrieve_policies)
         graph.add_node("skip_policy_retrieval", self._skip_policy_retrieval)
@@ -166,7 +172,8 @@ class ReviewWorkflowGraph:
         graph.add_edge(START, "create_review")
         graph.add_edge("create_review", "extract_features")
         graph.add_edge("extract_features", "select_route")
-        graph.add_edge("select_route", "select_harness")
+        graph.add_edge("select_route", "analyze_complexity")
+        graph.add_edge("analyze_complexity", "select_harness")
         graph.add_conditional_edges(
             "select_harness",
             self._policy_retrieval_path,
@@ -205,7 +212,7 @@ class ReviewWorkflowGraph:
 
     def _extract_features(self, state: ReviewWorkflowState) -> JsonDict:
         request = state["request"]
-        policy_available = self.policy_index.has_policy()
+        policy_available = bool(request.repository_policies) or self.policy_index.has_policy()
         features = extract_features(request, policy_available=policy_available)
         self._publish("features_extracted", features.to_dict())
         return {"policy_available": policy_available, "features": features}
@@ -214,6 +221,24 @@ class ReviewWorkflowGraph:
         route = select_route(state["features"], review_mode=state["request"].review_mode)
         self._publish("route_selected", route.to_dict())
         return {"route": route}
+
+    def _analyze_complexity(self, state: ReviewWorkflowState) -> JsonDict:
+        request = state["request"]
+        metrics = analyze_complexity(request)
+        request = replace(request, complexity_metrics=metrics)
+        self._publish(
+            "complexity_analyzed",
+            {
+                "tool": "radon",
+                "metric": "cyclomatic_complexity",
+                "measured_count": len(metrics),
+                "threshold_exceeded_count": sum(
+                    metric.exceeded_threshold for metric in metrics
+                ),
+                "files": sorted({metric.file_path for metric in metrics}),
+            },
+        )
+        return {"request": request, "complexity_metrics": metrics}
 
     def _policy_retrieval_path(self, state: ReviewWorkflowState) -> str:
         return "retrieve" if state["route"].use_rag else "skip"
@@ -239,7 +264,13 @@ class ReviewWorkflowGraph:
             "policy_retrieval_started",
             {"candidate_top_k": 8, "policy_types": context.candidate_policy_types},
         )
-        policies = self.policy_index.search(
+        indexed_policies = self.policy_index.search(
+            state["request"],
+            top_k=8,
+            policy_types=set(context.candidate_policy_types) or None,
+        )
+        policies = rank_policy_chunks(
+            [*state["request"].repository_policies, *indexed_policies],
             state["request"],
             top_k=8,
             policy_types=set(context.candidate_policy_types) or None,
@@ -459,6 +490,7 @@ class ReviewWorkflowGraph:
             features=state["features"],
             model_call=state["usage"],
             retrieved_policies=state["policies"],
+            complexity_metrics=state.get("complexity_metrics", []),
             review_harness=state["review_harness"],
             finding_validation=state["finding_validation"],
         )

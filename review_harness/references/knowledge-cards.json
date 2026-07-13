@@ -240,6 +240,18 @@
       "source_ids": ["google-sre-monitoring", "owasp-logging"]
     },
     {
+      "id": "python-cyclomatic-complexity-threshold",
+      "title": "Python cyclomatic complexity 임계값",
+      "skill_id": "performance-simplification",
+      "signals": ["complexity_regression"],
+      "routes": ["deep_quality_review"],
+      "check": "Radon 측정값에서 함수의 cyclomatic complexity가 변경 전보다 증가하고 임계값 15를 초과했는지 확인한다.",
+      "evidence_required": "complexity_metrics에 있는 정확한 metric_id, 함수명, before, after, threshold 값",
+      "false_positive_guard": "측정값이 없거나 after가 임계값 이하이거나 증가하지 않았다면 복잡도 finding을 만들지 않는다.",
+      "severity_cap": "medium",
+      "source_ids": ["radon-complexity-api"]
+    },
+    {
       "id": "loop-io-and-n-plus-one",
       "title": "Loop 내부 I/O와 N+1",
       "skill_id": "performance-simplification",

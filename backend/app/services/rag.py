@@ -11,6 +11,7 @@ from backend.app.core.schemas import PolicyChunk, ReviewRequest
 TOKEN_PATTERN = re.compile(r"[\w./-]+", re.UNICODE)
 TOKEN_SPLIT_PATTERN = re.compile(r"[_./-]+")
 POLICY_GLOBS = ("*.md", "**/*.md", "CODEOWNERS", ".github/pull_request_template.md")
+REPOSITORY_POLICY_PATH = ".github/ai-review-policy.md"
 NON_NORMATIVE_SECTION_TITLES = {"적용 범위", "scope", "overview"}
 POLICY_TYPE_PATH_HINTS = (
     ("security", "security"),
@@ -42,18 +43,26 @@ def _tokens(text: str) -> set[str]:
 
 
 def _policy_type(path: Path, content: str) -> str:
-    lowered_path = str(path).lower()
-    for hint, policy_type in POLICY_TYPE_PATH_HINTS:
-        if hint in lowered_path:
-            return policy_type
     lowered_content = content[:500].lower()
-    for hint, policy_type in POLICY_TYPE_PATH_HINTS:
-        if hint in lowered_content:
-            return policy_type
+    lowered_path = str(path).lower()
+    sources = (
+        (lowered_content, lowered_path)
+        if lowered_path == REPOSITORY_POLICY_PATH
+        else (lowered_path, lowered_content)
+    )
+    for source in sources:
+        for hint, policy_type in POLICY_TYPE_PATH_HINTS:
+            if hint in source:
+                return policy_type
     return "general"
 
 
-def _split_markdown(source_path: Path, content: str, max_chars: int = 1800) -> list[PolicyChunk]:
+def split_policy_markdown(
+    source_path: str | Path,
+    content: str,
+    max_chars: int = 1800,
+) -> list[PolicyChunk]:
+    source_path = Path(source_path)
     chunks: list[PolicyChunk] = []
     section_title = source_path.name
     buffer: list[str] = []
@@ -74,7 +83,7 @@ def _split_markdown(source_path: Path, content: str, max_chars: int = 1800) -> l
                     source_path=str(source_path),
                     section_title=section_title,
                     content=text[:max_chars],
-                    policy_type=_policy_type(source_path, text),
+                    policy_type=_policy_type(source_path, f"{section_title}\n{text}"),
                 )
             )
             text = text[max_chars:]
@@ -83,7 +92,7 @@ def _split_markdown(source_path: Path, content: str, max_chars: int = 1800) -> l
                 source_path=str(source_path),
                 section_title=section_title,
                 content=text,
-                policy_type=_policy_type(source_path, text),
+                policy_type=_policy_type(source_path, f"{section_title}\n{text}"),
             )
         )
         buffer.clear()
@@ -120,13 +129,16 @@ def rank_policy_chunks(
     query_tokens = _query_tokens(request)
     scored: list[PolicyChunk] = []
     for chunk in chunks:
-        if policy_types and chunk.policy_type not in policy_types:
+        is_repository_policy = chunk.source_path == REPOSITORY_POLICY_PATH
+        if policy_types and chunk.policy_type not in policy_types and not is_repository_policy:
             continue
         chunk_tokens = _tokens(f"{chunk.source_path} {chunk.section_title} {chunk.content}")
         overlap = query_tokens & chunk_tokens
         if not overlap:
             continue
         score = len(overlap) / math.sqrt(max(len(chunk_tokens), 1))
+        if is_repository_policy:
+            score += 10.0
         scored.append(
             PolicyChunk(
                 source_path=chunk.source_path,
@@ -170,7 +182,7 @@ class LocalPolicyIndex:
             except UnicodeDecodeError:
                 content = path.read_text(encoding="utf-8", errors="ignore")
             relative_path = path.relative_to(self.policy_root)
-            chunks.extend(_split_markdown(relative_path, content))
+            chunks.extend(split_policy_markdown(relative_path, content))
         return chunks
 
     def has_policy(self) -> bool:

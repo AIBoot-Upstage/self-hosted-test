@@ -102,6 +102,8 @@ class ChangedFilePayload:
     additions: int = 0
     deletions: int = 0
     patch: str = ""
+    base_content: str = ""
+    head_content: str = ""
 
     @classmethod
     def from_dict(cls, payload: JsonDict) -> "ChangedFilePayload":
@@ -111,6 +113,8 @@ class ChangedFilePayload:
             additions=_int(payload.get("additions")),
             deletions=_int(payload.get("deletions")),
             patch=_string(payload.get("patch")),
+            base_content=_string(payload.get("base_content")),
+            head_content=_string(payload.get("head_content")),
         )
 
     @property
@@ -139,11 +143,51 @@ class GitHubPayload:
 
 
 @dataclass(frozen=True)
+class ComplexityMetric:
+    metric_id: str
+    tool: str
+    metric: str
+    file_path: str
+    symbol: str
+    line_start: int
+    before: int
+    after: int
+    delta: int
+    threshold: int
+    exceeded_threshold: bool
+    rank_before: str
+    rank_after: str
+
+    @classmethod
+    def from_dict(cls, payload: JsonDict) -> "ComplexityMetric":
+        return cls(
+            metric_id=_string(payload.get("metric_id")),
+            tool=_string(payload.get("tool"), "radon"),
+            metric=_string(payload.get("metric"), "cyclomatic_complexity"),
+            file_path=_string(payload.get("file_path")),
+            symbol=_string(payload.get("symbol")),
+            line_start=_int(payload.get("line_start")),
+            before=_int(payload.get("before")),
+            after=_int(payload.get("after")),
+            delta=_int(payload.get("delta")),
+            threshold=_int(payload.get("threshold"), 15),
+            exceeded_threshold=bool(payload.get("exceeded_threshold", False)),
+            rank_before=_string(payload.get("rank_before"), "A"),
+            rank_after=_string(payload.get("rank_after"), "A"),
+        )
+
+    def to_dict(self) -> JsonDict:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class ReviewRequest:
     repository: RepositoryPayload
     pull_request: PullRequestPayload
     checks: list[CheckResultPayload] = field(default_factory=list)
     changed_files: list[ChangedFilePayload] = field(default_factory=list)
+    repository_policies: list[PolicyChunk] = field(default_factory=list)
+    complexity_metrics: list[ComplexityMetric] = field(default_factory=list)
     github: GitHubPayload = field(default_factory=GitHubPayload)
     review_mode: str = "auto"
 
@@ -155,6 +199,12 @@ class ReviewRequest:
             checks=[CheckResultPayload.from_dict(item) for item in payload.get("checks", [])],
             changed_files=[
                 ChangedFilePayload.from_dict(item) for item in payload.get("changed_files", [])
+            ],
+            repository_policies=[
+                PolicyChunk(**item) for item in payload.get("repository_policies", [])
+            ],
+            complexity_metrics=[
+                ComplexityMetric.from_dict(item) for item in payload.get("complexity_metrics", [])
             ],
             github=GitHubPayload.from_dict(payload.get("github")),
             review_mode=_string(payload.get("review_mode"), "auto"),
@@ -374,6 +424,7 @@ class ReviewResult:
     features: PullRequestFeatures
     model_call: ModelCallUsage
     retrieved_policies: list[PolicyChunk] = field(default_factory=list)
+    complexity_metrics: list[ComplexityMetric] = field(default_factory=list)
     review_harness: ReviewHarnessContext | None = None
     finding_validation: JsonDict = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
@@ -389,6 +440,7 @@ class ReviewResult:
             "features": self.features.to_dict(),
             "model_call": self.model_call.to_dict(),
             "retrieved_policies": [chunk.to_dict() for chunk in self.retrieved_policies],
+            "complexity_metrics": [metric.to_dict() for metric in self.complexity_metrics],
             "review_harness": (
                 self.review_harness.to_dict(include_instructions=False)
                 if self.review_harness is not None
