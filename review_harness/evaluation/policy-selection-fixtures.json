@@ -214,5 +214,26 @@
       "public-contract-documentation-sync"
     ],
     "expected_policy_types": ["architecture", "observability"]
+  },
+  {
+    "id": "deployment-smoke-external-auth",
+    "request": {
+      "repository": {"owner": "team", "name": "service"},
+      "pull_request": {"number": 12, "title": "Verify GitHub App credentials", "head_sha": "a12"},
+      "changed_files": [{
+        "path": "scripts/local-deploy-test.sh",
+        "patch": "+from backend.app.services.github_app import GitHubAppClient\n+client = GitHubAppClient(Settings.from_env())\n+client.request_json(\"GET\", \"/app\", token=client.create_jwt())",
+        "additions": 3
+      }]
+    },
+    "expected_skills": ["change-correctness", "api-contract", "security-boundary"],
+    "allowed_skills": [
+      "change-correctness",
+      "api-contract",
+      "security-boundary"
+    ],
+    "expected_cards": ["secret-and-sensitive-log-flow"],
+    "allowed_cards": ["secret-and-sensitive-log-flow"],
+    "expected_policy_types": ["security", "test"]
   }
 ]

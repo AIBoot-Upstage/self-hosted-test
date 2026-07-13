@@ -58,7 +58,7 @@ class PolicyHarnessTest(unittest.TestCase):
     def test_prompt_harness_fixture_baseline(self):
         result = evaluate_harness()
 
-        self.assertEqual(result["fixture_count"], 11)
+        self.assertEqual(result["fixture_count"], 12)
         self.assertEqual(result["skill_recall"], 1.0, json.dumps(result, ensure_ascii=False))
         self.assertEqual(result["skill_precision"], 1.0)
         self.assertEqual(
@@ -89,6 +89,37 @@ class PolicyHarnessTest(unittest.TestCase):
             if card["id"] == "test-distinguishes-regression"
         )
         self.assertIn("network·LLM client", test_card["false_positive_guard"])
+
+    def test_deployment_smoke_does_not_select_unit_test_cards(self):
+        request = ReviewRequest.from_dict(
+            {
+                "repository": {"owner": "team", "name": "repo"},
+                "pull_request": {"number": 12, "head_sha": "head"},
+                "changed_files": [
+                    {
+                        "path": "scripts/local-deploy-test.sh",
+                        "patch": (
+                            "+client = GitHubAppClient(Settings.from_env())\n"
+                            "+client.request_json('GET', '/app', token=client.create_jwt())"
+                        ),
+                    }
+                ],
+            }
+        )
+        route = ReviewRoute(
+            name="policy_context_review",
+            model_tier="solar3-medium",
+            use_rag=True,
+            focus=["repo_policy"],
+            reasons=["checks passed"],
+            confidence=0.9,
+        )
+
+        context = self.harness.select(request, route)
+        selected_card_ids = {card.card_id for card in context.knowledge_cards}
+
+        self.assertNotIn("test-distinguishes-regression", selected_card_ids)
+        self.assertNotIn("test-brittle-implementation-detail", selected_card_ids)
 
     def test_prompt_includes_selected_skills_and_at_most_two_policies(self):
         request = ReviewRequest.from_dict(
