@@ -68,23 +68,34 @@ CD_DEPLOY_TARGET=gcp-vm
 
 `GITHUB_APP_ID`, `GITHUB_WEBHOOK_REVIEW_MODE`, `UPSTAGE_API_KEY`,
 `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_PRIVATE_KEY` 등 런타임 값은 GitHub Actions
-variables/secrets가 아니라 VM의 `~/ai-code-review-agent-deploy/.env`에서 관리한다.
+variables/secrets가 아니라 VM의 `/opt/ai-code-review-agent-deploy/.env`에서 관리한다.
 
 Recommended GitHub repository secrets:
 
 ```text
 GCP_WORKLOAD_IDENTITY_PROVIDER=projects/.../providers/...
 GCP_SERVICE_ACCOUNT=github-deployer@<project-id>.iam.gserviceaccount.com
+GCP_DEPLOY_SSH_PRIVATE_KEY=<fixed OpenSSH private key content>
 ```
+
+`GCP_DEPLOY_SSH_PRIVATE_KEY`는 `gcloud compute scp`/`ssh`가 매 실행마다 임시 키를 새로
+발급하고 OS Login 전파를 기다리는 지연을 없애기 위한 고정 키다. 자세한 생성/등록 방법은
+[`server-deployment-settings.md`](./server-deployment-settings.md)를 참고한다.
 
 Required IAM roles for the deployer service account:
 
 ```text
 roles/iap.tunnelResourceAccessor
 roles/compute.viewer
-roles/compute.osLogin 또는 roles/compute.osAdminLogin
+roles/compute.osAdminLogin
 roles/iam.serviceAccountUser on the VM attached service account
 ```
+
+`roles/compute.osAdminLogin`이 필요한 이유: 배포 SA의 OS Login 계정은 세션마다
+`sa_<unique-id>` 형태로 임시 생성되고 `docker` group 멤버십을 세션 간에 유지하지
+못한다. 그래서 배포 스크립트는 `/opt/ai-code-review-agent-deploy` 접근과 `docker`
+명령을 전부 `sudo`로 실행하며, 이건 `compute.osLogin`(sudo 불가)이 아니라
+`compute.osAdminLogin`(passwordless sudo, `google-sudoers` group)이어야만 동작한다.
 
 `gcloud compute scp`에서 `The user does not have access to service account
 '<PROJECT_NUMBER>-compute@developer.gserviceaccount.com'`가 나오면, GitHub Actions가
@@ -102,7 +113,7 @@ gcloud iam service-accounts add-iam-policy-binding "${VM_ATTACHED_SA}" \
   --role "roles/iam.serviceAccountUser"
 ```
 
-VM의 `~/ai-code-review-agent-deploy/.env`에는 image build용 local override를 넣지 않는다.
+VM의 `/opt/ai-code-review-agent-deploy/.env`에는 image build용 local override를 넣지 않는다.
 로컬 테스트에서는 `COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml`, VM 배포에서는
 `COMPOSE_FILE=docker-compose.yml`만 사용한다. Caddy를 켜려면 `COMPOSE_PROFILES=edge`와
 `DOMAIN=<domain>`을 설정한다. 배포 workflow는 실행할 image tag를 `AI_REVIEWER_IMAGE`

@@ -359,7 +359,7 @@ managed 데이터베이스 없이 VM 한 대에 그대로 배포합니다.
    (도메인이 없다면 `sslip.io` 등으로 대체 가능, 자세한 내용은 `infra/gcp/README.md` 참고).
 
 배포 workflow는 `.github/workflows/deploy-gcp-vm.yml`에 있습니다. VM의
-`~/ai-code-review-agent-deploy/.env`에는 GitHub App, Upstage, DB, Langfuse 값을 먼저
+`/opt/ai-code-review-agent-deploy/.env`에는 GitHub App, Upstage, DB, Langfuse 값을 먼저
 채워둬야 합니다. Caddy를 사용하려면 같은 `.env`에 `COMPOSE_PROFILES=edge`와 `DOMAIN`도
 설정합니다. GitHub repository variable `CD_DEPLOY_TARGET=local-only`로 바꾸면 main push 후
 image build 검증만 하고 GCP 배포는 건너뜁니다. 자세한 VM/방화벽/고정 IP 구성은
