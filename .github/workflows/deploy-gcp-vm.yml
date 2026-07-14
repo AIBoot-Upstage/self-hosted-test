@@ -26,7 +26,6 @@ env:
   GCE_INSTANCE: ${{ vars.GCE_INSTANCE || 'ai-code-review-agent' }}
   AI_REVIEWER_IMAGE_NAME: ${{ vars.AI_REVIEWER_IMAGE_NAME || 'ai-code-review-agent-api' }}
   CD_DEPLOY_TARGET: ${{ vars.CD_DEPLOY_TARGET }}
-  GCP_SSH_KEY_FILE: ${{ runner.temp }}/gcp_deploy_ssh_key
 
 jobs:
   deploy:
@@ -186,14 +185,14 @@ jobs:
           GCP_DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.GCP_DEPLOY_SSH_PRIVATE_KEY }}
         run: |
           umask 077
-          printf '%s\n' "${GCP_DEPLOY_SSH_PRIVATE_KEY}" > "${GCP_SSH_KEY_FILE}"
-          ssh-keygen -y -f "${GCP_SSH_KEY_FILE}" > "${GCP_SSH_KEY_FILE}.pub"
+          printf '%s\n' "${GCP_DEPLOY_SSH_PRIVATE_KEY}" > "${RUNNER_TEMP}/gcp_deploy_ssh_key"
+          ssh-keygen -y -f "${RUNNER_TEMP}/gcp_deploy_ssh_key" > "${RUNNER_TEMP}/gcp_deploy_ssh_key.pub"
 
       - name: Upload image and runtime files
         if: ${{ steps.target.outputs.deploy_target == 'gcp-vm' }}
         run: |
           gcloud compute scp --tunnel-through-iap \
-            --ssh-key-file "${GCP_SSH_KEY_FILE}" \
+            --ssh-key-file "${RUNNER_TEMP}/gcp_deploy_ssh_key" \
             --zone "${GCP_ZONE}" --project "${GCP_PROJECT_ID}" \
             "${RUNNER_TEMP}/ai-code-review-agent-image.tar.gz" \
             "${RUNNER_TEMP}/ai-code-review-agent-runtime.tar.gz" \
@@ -204,7 +203,7 @@ jobs:
         if: ${{ steps.target.outputs.deploy_target == 'gcp-vm' }}
         run: |
           gcloud compute ssh "${GCE_INSTANCE}" --tunnel-through-iap \
-            --ssh-key-file "${GCP_SSH_KEY_FILE}" \
+            --ssh-key-file "${RUNNER_TEMP}/gcp_deploy_ssh_key" \
             --zone "${GCP_ZONE}" --project "${GCP_PROJECT_ID}" \
             --command "AI_REVIEWER_IMAGE='${{ steps.image.outputs.image_ref }}' bash ~/deploy-ai-code-review-agent.sh"
 
@@ -212,7 +211,7 @@ jobs:
         if: ${{ steps.target.outputs.deploy_target == 'gcp-vm' }}
         run: |
           gcloud compute ssh "${GCE_INSTANCE}" --tunnel-through-iap \
-            --ssh-key-file "${GCP_SSH_KEY_FILE}" \
+            --ssh-key-file "${RUNNER_TEMP}/gcp_deploy_ssh_key" \
             --zone "${GCP_ZONE}" --project "${GCP_PROJECT_ID}" \
             --command "DEPLOY_DIR=~/ai-code-review-agent-deploy; \
               PORT=\$(awk -F= '\$1 == \"PORT\" {print \$2}' \"\${DEPLOY_DIR}/.env\" | tail -n1); \
