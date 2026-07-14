@@ -75,7 +75,12 @@ Recommended GitHub repository secrets:
 ```text
 GCP_WORKLOAD_IDENTITY_PROVIDER=projects/.../providers/...
 GCP_SERVICE_ACCOUNT=github-deployer@<project-id>.iam.gserviceaccount.com
+GCP_DEPLOY_SSH_PRIVATE_KEY=<fixed OpenSSH private key content>
 ```
+
+`GCP_DEPLOY_SSH_PRIVATE_KEY`는 `gcloud compute scp`/`ssh`가 매 실행마다 임시 키를 새로
+발급하고 OS Login 전파를 기다리는 지연을 없애기 위한 고정 키다. 자세한 생성/등록 방법은
+[`server-deployment-settings.md`](./server-deployment-settings.md)를 참고한다.
 
 Required IAM roles for the deployer service account:
 

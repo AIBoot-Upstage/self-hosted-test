@@ -26,6 +26,7 @@ env:
   GCE_INSTANCE: ${{ vars.GCE_INSTANCE || 'ai-code-review-agent' }}
   AI_REVIEWER_IMAGE_NAME: ${{ vars.AI_REVIEWER_IMAGE_NAME || 'ai-code-review-agent-api' }}
   CD_DEPLOY_TARGET: ${{ vars.CD_DEPLOY_TARGET }}
+  GCP_SSH_KEY_FILE: ${{ runner.temp }}/gcp_deploy_ssh_key
 
 jobs:
   deploy:
@@ -160,12 +161,14 @@ jobs:
         env:
           GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          GCP_DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.GCP_DEPLOY_SSH_PRIVATE_KEY }}
         run: |
           test -n "${GCP_PROJECT_ID}" || (echo "GCP_PROJECT_ID variable이 필요합니다" && exit 1)
           test -n "${GCP_ZONE}" || (echo "GCP_ZONE variable이 필요합니다" && exit 1)
           test -n "${GCE_INSTANCE}" || (echo "GCE_INSTANCE variable이 필요합니다" && exit 1)
           test -n "${GCP_WORKLOAD_IDENTITY_PROVIDER}" || (echo "GCP_WORKLOAD_IDENTITY_PROVIDER secret이 필요합니다" && exit 1)
           test -n "${GCP_SERVICE_ACCOUNT}" || (echo "GCP_SERVICE_ACCOUNT secret이 필요합니다" && exit 1)
+          test -n "${GCP_DEPLOY_SSH_PRIVATE_KEY}" || (echo "GCP_DEPLOY_SSH_PRIVATE_KEY secret이 필요합니다" && exit 1)
 
       - id: auth
         if: ${{ steps.target.outputs.deploy_target == 'gcp-vm' }}
@@ -177,10 +180,20 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
         if: ${{ steps.target.outputs.deploy_target == 'gcp-vm' }}
 
+      - name: Configure fixed SSH deploy key
+        if: ${{ steps.target.outputs.deploy_target == 'gcp-vm' }}
+        env:
+          GCP_DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.GCP_DEPLOY_SSH_PRIVATE_KEY }}
+        run: |
+          umask 077
+          printf '%s\n' "${GCP_DEPLOY_SSH_PRIVATE_KEY}" > "${GCP_SSH_KEY_FILE}"
+          ssh-keygen -y -f "${GCP_SSH_KEY_FILE}" > "${GCP_SSH_KEY_FILE}.pub"
+
       - name: Upload image and runtime files
         if: ${{ steps.target.outputs.deploy_target == 'gcp-vm' }}
         run: |
           gcloud compute scp --tunnel-through-iap \
+            --ssh-key-file "${GCP_SSH_KEY_FILE}" \
             --zone "${GCP_ZONE}" --project "${GCP_PROJECT_ID}" \
             "${RUNNER_TEMP}/ai-code-review-agent-image.tar.gz" \
             "${RUNNER_TEMP}/ai-code-review-agent-runtime.tar.gz" \
@@ -191,6 +204,7 @@ jobs:
         if: ${{ steps.target.outputs.deploy_target == 'gcp-vm' }}
         run: |
           gcloud compute ssh "${GCE_INSTANCE}" --tunnel-through-iap \
+            --ssh-key-file "${GCP_SSH_KEY_FILE}" \
             --zone "${GCP_ZONE}" --project "${GCP_PROJECT_ID}" \
             --command "AI_REVIEWER_IMAGE='${{ steps.image.outputs.image_ref }}' bash ~/deploy-ai-code-review-agent.sh"
 
@@ -198,6 +212,7 @@ jobs:
         if: ${{ steps.target.outputs.deploy_target == 'gcp-vm' }}
         run: |
           gcloud compute ssh "${GCE_INSTANCE}" --tunnel-through-iap \
+            --ssh-key-file "${GCP_SSH_KEY_FILE}" \
             --zone "${GCP_ZONE}" --project "${GCP_PROJECT_ID}" \
             --command "DEPLOY_DIR=~/ai-code-review-agent-deploy; \
               PORT=\$(awk -F= '\$1 == \"PORT\" {print \$2}' \"\${DEPLOY_DIR}/.env\" | tail -n1); \
