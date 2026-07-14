@@ -149,7 +149,7 @@ jobs:
             docker compose -p ai-code-review-agent exec -T api \
               python -c 'import json; from backend.app.core.config import Settings; from backend.app.services.rag import create_policy_index; print(json.dumps(create_policy_index(Settings.from_env()).sync(), ensure_ascii=False))'
 
-          sudo docker image prune -f
+          sudo docker image prune -af
           rm -f "${IMAGE_ARCHIVE}" "${RUNTIME_ARCHIVE}"
           SCRIPT
 
