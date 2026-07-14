@@ -91,7 +91,7 @@ jobs:
 
           : "${AI_REVIEWER_IMAGE:?AI_REVIEWER_IMAGE is required}"
 
-          DEPLOY_DIR="${HOME}/ai-code-review-agent-deploy"
+          DEPLOY_DIR="/opt/ai-code-review-agent-deploy"
           IMAGE_ARCHIVE="${HOME}/ai-code-review-agent-image.tar.gz"
           RUNTIME_ARCHIVE="${HOME}/ai-code-review-agent-runtime.tar.gz"
 
@@ -99,19 +99,19 @@ jobs:
             echo "VM에 Docker CLI가 필요합니다."
             exit 1
           fi
-          if ! docker compose version >/dev/null 2>&1; then
+          if ! sudo docker compose version >/dev/null 2>&1; then
             echo "VM에 Docker Compose plugin이 필요합니다."
             exit 1
           fi
 
-          mkdir -p "${DEPLOY_DIR}"
+          sudo mkdir -p "${DEPLOY_DIR}"
           test -f "${DEPLOY_DIR}/.env" || (
             echo "VM의 ${DEPLOY_DIR}/.env 파일이 필요합니다. .env.example을 기준으로 먼저 생성하세요."
             exit 1
           )
 
           compose_profiles="$(
-            awk -F= '$1 == "COMPOSE_PROFILES" {print $2}' "${DEPLOY_DIR}/.env" \
+            sudo awk -F= '$1 == "COMPOSE_PROFILES" {print $2}' "${DEPLOY_DIR}/.env" \
               | tail -n1 \
               | tr -d "\"'" \
               | tr -d " "
@@ -119,7 +119,7 @@ jobs:
           case ",${compose_profiles}," in
             *,edge,*)
               domain="$(
-                awk -F= '$1 == "DOMAIN" {print $2}' "${DEPLOY_DIR}/.env" \
+                sudo awk -F= '$1 == "DOMAIN" {print $2}' "${DEPLOY_DIR}/.env" \
                   | tail -n1 \
                   | tr -d "\"'" \
                   | tr -d " "
@@ -131,27 +131,25 @@ jobs:
               ;;
           esac
 
-          rm -rf "${DEPLOY_DIR}/policies"
-          rm -rf "${DEPLOY_DIR}/review_harness"
-          rm -f \
+          sudo rm -rf "${DEPLOY_DIR}/policies"
+          sudo rm -rf "${DEPLOY_DIR}/review_harness"
+          sudo rm -f \
             "${DEPLOY_DIR}/Caddyfile" \
             "${DEPLOY_DIR}/docker-compose.yml" \
             "${DEPLOY_DIR}/docker-compose.local.yml"
-          tar -xzf "${RUNTIME_ARCHIVE}" -C "${DEPLOY_DIR}"
+          sudo tar -xzf "${RUNTIME_ARCHIVE}" -C "${DEPLOY_DIR}"
 
-          gzip -dc "${IMAGE_ARCHIVE}" | docker load
+          gzip -dc "${IMAGE_ARCHIVE}" | sudo docker load
 
           cd "${DEPLOY_DIR}"
-          COMPOSE_FILE=docker-compose.yml \
-          AI_REVIEWER_IMAGE="${AI_REVIEWER_IMAGE}" \
+          sudo env COMPOSE_FILE=docker-compose.yml AI_REVIEWER_IMAGE="${AI_REVIEWER_IMAGE}" \
             docker compose -p ai-code-review-agent up -d --no-build --remove-orphans
 
-          COMPOSE_FILE=docker-compose.yml \
-          AI_REVIEWER_IMAGE="${AI_REVIEWER_IMAGE}" \
+          sudo env COMPOSE_FILE=docker-compose.yml AI_REVIEWER_IMAGE="${AI_REVIEWER_IMAGE}" \
             docker compose -p ai-code-review-agent exec -T api \
               python -c 'import json; from backend.app.core.config import Settings; from backend.app.services.rag import create_policy_index; print(json.dumps(create_policy_index(Settings.from_env()).sync(), ensure_ascii=False))'
 
-          docker image prune -f
+          sudo docker image prune -f
           rm -f "${IMAGE_ARCHIVE}" "${RUNTIME_ARCHIVE}"
           SCRIPT
 
@@ -213,8 +211,8 @@ jobs:
           gcloud compute ssh "${GCE_INSTANCE}" --tunnel-through-iap \
             --ssh-key-file "${RUNNER_TEMP}/gcp_deploy_ssh_key" \
             --zone "${GCP_ZONE}" --project "${GCP_PROJECT_ID}" \
-            --command "DEPLOY_DIR=~/ai-code-review-agent-deploy; \
-              PORT=\$(awk -F= '\$1 == \"PORT\" {print \$2}' \"\${DEPLOY_DIR}/.env\" | tail -n1); \
+            --command "DEPLOY_DIR=/opt/ai-code-review-agent-deploy; \
+              PORT=\$(sudo awk -F= '\$1 == \"PORT\" {print \$2}' \"\${DEPLOY_DIR}/.env\" | tail -n1); \
               PORT=\${PORT:-8080}; \
               PORT=\${PORT%\\\"}; PORT=\${PORT#\\\"}; \
               for attempt in \$(seq 1 40); do \
@@ -222,7 +220,7 @@ jobs:
                 sleep 2; \
               done; \
               cd \"\${DEPLOY_DIR}\"; \
-              COMPOSE_FILE=docker-compose.yml AI_REVIEWER_IMAGE='${{ steps.image.outputs.image_ref }}' \
+              sudo env COMPOSE_FILE=docker-compose.yml AI_REVIEWER_IMAGE='${{ steps.image.outputs.image_ref }}' \
                 docker compose -p ai-code-review-agent logs --tail=160 api caddy postgres; \
               exit 1"
 
