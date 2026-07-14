@@ -55,7 +55,7 @@ jobs:
           echo "deploy_target=${target}" >> "${GITHUB_OUTPUT}"
           echo "선택된 배포 대상: ${target}"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
