@@ -13,3 +13,5 @@ build/
 *.egg-info/
 *:Zone.Identifier
 *.pem
+docs/
+edu-gachon2026-project/
