@@ -42,7 +42,6 @@ SEVERITY_ALIASES = {
     "critical": "high",
     "blocker": "high",
     "p0": "high",
-    "p1": "high",
     "major": "high",
     "high": "high",
     "p2": "medium",
